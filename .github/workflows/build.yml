@@ -68,7 +68,8 @@ jobs:
           git add install/$F install/SHA256SUMS
           if ! git diff --cached --quiet; then
             git commit -m "install: $F from ${GITHUB_SHA::7} [skip ci]"
-            git pull --rebase origin wonderblue-os && git push origin HEAD:wonderblue-os
+            git pull --rebase --autostash origin wonderblue-os   # (the build changed emulator/index.html: kept aside)
+            git push origin HEAD:wonderblue-os
           fi
           # and a release to download it from (replaced by every build of this branch)
           gh release view wonderblue-0.2 >/dev/null 2>&1 || gh release create wonderblue-0.2 --prerelease --target "$GITHUB_SHA" \
