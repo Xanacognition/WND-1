@@ -174,8 +174,8 @@ def build_app():
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-            ("cc", *flags, "-c", FW / "src" / "kawa.c", "-o", OUT / "kawa.o"),
-            ("cc", *flags, "-E", "-dM", FW / "src" / "kawa.c")]
+            ("cc", *flags, "-c", FW / "src" / "wonderblue.c", "-o", OUT / "kawa.o"),
+            ("cc", *flags, "-E", "-dM", FW / "src" / "wonderblue.c")]
     dm = tc_all(*cmds)[-1]
     elf = OUT / "kawa.elf"
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",

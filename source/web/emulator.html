@@ -265,6 +265,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   .slot { padding: 10px; }
   .donate { padding: 18px; }
 }
+#samples, .langs { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .cap, .btn .face, .key::before, .ring, .slot, .sbtn { transition: none; } }
 </style>
 
@@ -328,7 +329,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       </div>
       <div class="acts">
         <button type="button" class="sbtn" id="prj-export" data-t="p.exp"></button>
-        <label class="sbtn"><span data-t="p.imp"></span><input type="file" class="vh" id="prj-import" accept=".kawa,application/octet-stream"></label>
+        <label class="sbtn"><span data-t="p.imp"></span><input type="file" class="vh" id="prj-import" accept=".wbos,application/octet-stream"></label>
       </div>
     </div>
   </section>
@@ -362,9 +363,9 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   const KNOB_COL = ["#FF5C5C", "#FFCC40", "#5CE274", "#54A4FF"];   /* the firmware's KNOB_COL */
   const THEME_ACC = ["#ff5fb4", "#a8d04a", "#ff7ab8"];               /* KAWA, GAME BOY, BONBON */
   const PG = {TRACKS: 0, PROJECTS: 8};
-  const SLOT = 0x9000, RATE = 22050;
+  const SLOT = 0x4000, RATE = 22050;
   let STORE_SIZE = 4 * SLOT, CAP = 36608;                            /* (kawa_store_size, kawa_sample_size) */
-  const LS_STORE = "kawa-store-v1", LS_SMP = "kawa-samples-v1", LS_LANG = "kawa-lang";
+  const LS_STORE = "wonderblue-store-v1", LS_SMP = "kawa-samples-v1", LS_LANG = "kawa-lang";
 
   /* ---- the engine, the same in the worklet and on the main thread. It reads the screen, the LEDs, the
      knobs' labels, the page, the sample slots and the project store about 30 times a second and posts
@@ -807,6 +808,60 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       foot: "KAWA es software libre (GPL-3.0), construido sobre Dinghy, Felucca y SLOOP, la plataforma abierta de la comunidad FM-1. Los breaks están totalmente sintetizados. El firmware se instala en el FM-1 por USB bajo tu propio riesgo: ten a mano el firmware oficial V15 y M-UPGRADE para volver atrás."
     }
   };
+  /* Wonderblue-OS: its own pages and controls (the screen is in English: the other languages show the same) */
+  Object.assign(I18N.en, {
+    tag: "Genre tracker for the M-VAVE FM-1 · breaks, punch-ins, FM, and a mode that plays itself",
+    beta: "<b>This is a beta.</b> Wonderblue-OS has not been tested on a real FM-1 yet. Try it here first. Installing it is at your own risk: keep the official V15 firmware and M-UPGRADE at hand to go back, and never unplug the FM-1 while an update runs.",
+    power: "The FM-1 firmware runs here as it is, compiled to WebAssembly. Turn the sound on and power up.",
+    pages: ["SONGS (SNG)", "TRACKER (TRK)", "SOUND (SND)", "CHORDS (CHD)", "GENERATE (GEN)", "MIX", "MASTER (MST)"],
+    "k.select": "ROW", "k.presets": "SOUND / GENRE / PATTERN", "k.algo": "TRACK",
+    "b.oct": "PAD OCTAVE", "b.fx": "HOLD: PUNCH-INS", "b.scl": "CHD", "b.env": "MIX", "b.lfo": "GEN", "b.edit": "SND", "b.glo": "MST",
+    "b.home": "TRK", "b.home.alt": "+ PLAY: SIT", "b.save": "SNG", "b.save.alt": "SONGS", "b.arp": "HOLD: REPEAT", "b.seq": "HOLD: PATTERN", "b.play": "PLAY", "b.rec": "REC",
+    "tt.SELECT": "SELECT moves the cursor's row (on SNG: the slot, on CHD: the chord slot).",
+    "tt.PRESETS": "PRESETS: on SND the track's sound, on SNG the genre, on CHD the progression, elsewhere the pattern A-H (cued while it plays).",
+    "tt.ALGORITHM": "ALGORITHM picks the track: BRK KIK SNR HAT BAS KEY SYN (the black keys 1-7 do too).",
+    "tt.0": "OCT- lowers the pads an octave (BAS KEY SYN). On SNG it cancels.",
+    "tt.1": "OCT+ raises the pads an octave (BAS KEY SYN). On SNG it confirms the F button waiting (SURE?).",
+    "tt.2": "FX held + a white key: a punch-in while you hold it. 1 ROLL 1/4, 2 ROLL 1/8, 3 ROLL 16, 4 ROLL 32, 5 REVERSE, 6 HALF, 7 SCATTER, 8 DUB, 9 WASH, 10 LPF.",
+    "tt.3": "SCL opens CHD: the chord progression. White 1-7 set a chord (I-VII), 8 deletes the last, 9-16 pick the slot. Knobs: PROG, CHORD LEN, VOICING, KEY.",
+    "tt.4": "ENV opens MIX: VOL, PAN, VERB, DELAY of the track; F1 MUTE, F2 SOLO, F3 ALL ON, F4 CLR TRK.",
+    "tt.5": "LFO opens GEN: CHANCE, MUTATE, DRIFT, DENSITY of the track; F1 FILL, F2 DICE, F3 RESTORE, F4 FILL ALL.",
+    "tt.6": "EDIT opens SND: the track's sound. Press again (or F1) for its next knobs. PRESETS picks the factory sound.",
+    "tt.7": "GLO opens MST: BPM, SWING, AGE, CRUSH; again for KEY, SCALE, SPACE, VOLUME; again for PUMP. F2 TAP, F3 SIT.",
+    "tt.8": "HOME opens TRK, the tracker: NOTE, VEL, FX, AMT of the cell. HOME + PLAY: SIT, the machine plays itself.",
+    "tt.9": "SAVE opens SNG: KNOB 2 or PRESETS picks the genre, F2 NEW SONG (twice) writes patterns A-H. F1 SAVE, F3 LOAD, F4 DELETE in the slot (KNOB 1 / SELECT).",
+    "tt.10": "ARP held + a pad: note repeat on every row while it plays (with REC it writes).",
+    "tt.11": "SEQ held + white 1-8: pattern A-H (cued while it plays); + white 9: loop the pattern / play the chain.",
+    "tt.12": "PLAY starts or stops. HOME + PLAY: SIT.",
+    "tt.13": "REC: the pads write notes at the cursor (on the nearest row while it plays).",
+    "p.h": "Saved songs",
+    "p.how": "Songs saved on the emulator (SNG, F1 SAVE) and the autosave stay in this browser and come back at power-on. Export a file to keep a copy or move it to another computer.",
+    "p.none": "Nothing saved yet: on the emulator, SAVE (SNG) then F1.",
+    "p.bad": "This is not a Wonderblue-OS songs file.",
+    "p.done": "Songs imported: the autosave is loaded, the others are in SNG.",
+    "p.later": "Songs imported: they will be there at power-on.",
+    "p.full": "The browser's storage is full: export your songs to keep them.",
+    "p.exp": "Export songs", "p.imp": "Import songs",
+    g1: "Start here",
+    g1l: "<li>Power on: a song is already written. <b>PLAY</b> plays it. <b>HOME + PLAY</b> is <b>SIT</b>: it plays by itself, moving between sections, dropping parts out and mutating them.</li>" +
+         "<li><b>SAVE</b> opens <b>SNG</b>: turn <b>KNOB 2</b> (or PRESETS) to pick one of 49 genres, then press <b>F2 NEW SONG</b> twice (F1-F4 are the black keys 8-11, under the knobs on screen). Patterns A-H are written as song sections and chained.</li>" +
+         "<li>Seven tracks: <b>BRK</b> the break (16 slices), <b>KIK SNR HAT</b> synthesised drums, <b>BAS KEY SYN</b> synths (FM, analog or voice). <b>ALGORITHM</b> or the black keys 1-7 pick one, the 16 white keys play it.</li>" +
+         "<li>The four knobs do what is written above F1-F4 at the bottom of the screen, on every page.</li>",
+    g2: "Pages",
+    g2l: "<li><b>HOME</b> TRK: the tracker. SELECT the row; NOTE, VEL, FX (RETRIG, CHANCE, DELAY, REVERSE, PITCH), AMT. F1 CLR, F2 OFF, F3 LEN 16/32/64, F4 DUP. <b>REC</b>: the pads write.</li>" +
+         "<li><b>SCL</b> CHD: the chords. PROG presets (incl. the four-chord song), CHORD LEN, VOICING, KEY; white 1-7 write your own; F1 WRITE new bass and keys on them, F2 NEW PROG, F3 UNDO, F4 HEAR.</li>" +
+         "<li><b>EDIT</b> SND: the sound (press again for more knobs). <b>LFO</b> GEN: chance, mutation, drift, density; FILL, DICE, RESTORE. <b>ENV</b> MIX. <b>GLO</b> MST: tempo, swing, tape age, crush, key, scale, space, pump.</li>" +
+         "<li><b>FX</b> held + white keys: punch-ins (rolls, reverse, half, scatter, dub, wash, filter). <b>SEQ</b> held + white 1-8: patterns. <b>ARP</b> held + a pad: note repeat.</li>",
+    g3: "On the keyboard",
+    g3l: "<li>Pads: the rows <kbd>Z X C V…</kbd> and <kbd>Q W E R…</kbd>.</li>" +
+         "<li><kbd>Space</kbd> PLAY · <kbd>Enter</kbd> REC · <kbd>Shift</kbd> held FX · <kbd>Backspace</kbd> ARP · <kbd>Esc</kbd> HOME · <kbd>-</kbd> <kbd>=</kbd> OCT- OCT+.</li>" +
+         "<li><kbd>↑</kbd><kbd>↓</kbd> row · <kbd>←</kbd><kbd>→</kbd> track · <kbd>PgUp</kbd><kbd>PgDn</kbd> pattern.</li>" +
+         "<li>The mouse wheel on a knob, or drag it up and down.</li>",
+    "d.sig": "Omnipotard, who made KAWA (the platform Wonderblue-OS runs on)",
+    foot: "Wonderblue-OS is free software (GPL-3.0), built on KAWA's platform (Dinghy, Felucca and SLOOP, the open platform of the FM-1 community). The breaks are entirely synthesised. Installing on the FM-1 is at your own risk: keep the official V15 firmware and M-UPGRADE at hand to go back."
+  });
+  I18N.fr = I18N.en;
+  I18N.es = I18N.en;
   const LANG_ID = {fr: 0, en: 1, es: 2};
   let lang = "en";
   const T = (k, v) => {
@@ -1093,7 +1148,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
 
   /* ---- the saved projects: the four slots of the store, kept in localStorage (each slot without its
      trailing zeros), exported and imported as the raw bytes (.kawa) */
-  const hasProject = (u8) => { for (let o = 0; o + 4 <= u8.length; o += SLOT) if (u8[o] === 0x4B && u8[o + 1] === 0x41 && u8[o + 2] === 0x57 && u8[o + 3] === 0x41) return true; return false; };
+  const hasProject = (u8) => { for (let o = 0; o + 4 <= u8.length; o += SLOT) if (u8[o] === 0x42 && u8[o + 1] === 0x4C && u8[o + 2] === 0x55 && u8[o + 3] === 0x45) return true; return false; };
   function saveStore(u8) {
     const parts = [];
     for (let o = 0; o < u8.length; o += SLOT) {
@@ -1127,7 +1182,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   }
   function download(u8) {
     const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
-    const f = "kawa-projects-" + d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + ".kawa";
+    const f = "wonderblue-songs-" + d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + ".wbos";
     const url = URL.createObjectURL(new Blob([u8], {type: "application/octet-stream"}));
     const a = document.createElement("a");
     a.href = url; a.download = f; a.hidden = true;
@@ -1315,7 +1370,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     endDrag();
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if (!f) return;
-    if (/\.kawa$/i.test(f.name)) { importProjects(f); return; }
+    if (/\.wbos$/i.test(f.name)) { importProjects(f); return; }
     let k = slotEl ? +slotEl.dataset.slot : samples.findIndex((s, i) => !s && !(running && ui.names[i]));
     if (k < 0) k = 0;
     if (!slotEl) slotEls[k].li.scrollIntoView({block: "nearest", behavior: "smooth"});

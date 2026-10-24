@@ -1,0 +1,34 @@
+100 shot boot
+200 btn 9
+300 shot sng
+400 enc 3 5
+500 keys 0x100000
+550 keys 0
+600 keys 0x100000
+650 keys 0
+700 shot newsong
+800 btn 8
+900 btn 12
+3000 shot play
+3100 btn 3
+3200 shot chd
+3300 btn 6
+3400 shot snd
+3500 enc 1 4
+3600 shot snd_key
+3700 keys 1
+3800 keys 0
+3900 btn 7
+4000 shot mst
+4100 press 2
+4150 keys 1
+4600 shot punch
+4700 keys 0
+4750 release 2
+5000 btn 5
+5200 shot gen
+6000 press 8
+6050 btn 12
+6100 release 8
+9000 shot sit
+12000 end

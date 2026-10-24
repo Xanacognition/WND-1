@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/host
 cc -O2 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -DDINGHY_HOST -DAPP_VER="\"${APP_VER:-dev}\"" \
-   -Ifirmware/src -Ifirmware/gen -o build/host/kawa firmware/src/kawa.c
+   -Ifirmware/src -Ifirmware/gen -o build/host/kawa firmware/src/${APP_SRC:-wonderblue}.c
 rm -f build/host/*.ppm build/host/*.png
 build/host/kawa build/host/kawa "${1:-tests/tour2.txt}"
 python3 - <<'PY'
