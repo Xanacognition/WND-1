@@ -119,7 +119,7 @@ static void start_slice(voice_t *v, const int16_t *p, uint32_t slice, int rev, i
     if (punch_half) rate >>= 1;
     v->kind = K_SLICE;
     v->q[0] = (int16_t)src;
-    v->step = mulq16(32768u, rate);             /* 22050 Hz data at 44100: half a sample a frame */
+    v->step = mulq16(BRK_SR >= 44100u ? 65536u : 32768u, rate);   /* a sample a frame at 44100 Hz (22050 Hz data: half) */
     len = sl * (uint32_t)clampi(p[PB_GATE], 10, 200) / 100u;
     if (retrig && gate_frames > 0) {
         uint32_t lim = (uint32_t)(((uint64_t)gate_frames * v->step) >> 16);
@@ -495,6 +495,15 @@ static void counter_voice(uint32_t t, uint32_t n, int32_t vel, int32_t gate)
 /* ---- the sequencer */
 static uint32_t sq_frame, sq_rowlen, sq_pos;    /* frames into the row, the row's length; the real row (punch-ins map it) */
 static uint8_t loop_start, rev_at;
+static uint32_t sq_racc;                        /* the rows' lengths, exact on average: 661500 / BPM has a remainder */
+static uint32_t exp_frames0, exp_frames, exp_mark;   /* (the emulator's export: where the pattern came round) */
+static uint32_t next_rowlen(void)
+{
+    uint32_t b = song.bpm ? song.bpm : 100u, f = row_frames();
+    sq_racc += 661500u % b;
+    if (sq_racc >= b) { sq_racc -= b; f++; }
+    return f;
+}
 static uint32_t gate_rows(const pat_t *p, uint32_t t, uint32_t r)
 {
     uint32_t k, L = p->len ? p->len : 16u;
@@ -569,7 +578,7 @@ static void seq_chunk(void)
         sq_frame = 0;
         sq_chainpos = 0;
         sq_pi = song.nchain > 1u && !song.loop ? song.chain[0] : song.cur;
-        sq_rowlen = row_frames();
+        sq_rowlen = next_rowlen();
         row_fire();
     } else if (sq_req == 2u) {
         sq_req = 0;
@@ -597,10 +606,11 @@ static void seq_chunk(void)
         const pat_t *p = &song.pat[sq_pi % NPAT];
         uint32_t L = p->len ? p->len : 16u;
         sq_frame -= sq_rowlen;
-        sq_rowlen = row_frames();
+        sq_rowlen = next_rowlen();
         if (++sq_pos >= steps_of(L)) {          /* the end of the pattern: the next one */
             sq_pos = 0;
             sq_end_pi = sq_pi;
+            if (!exp_mark) exp_mark = exp_frames + CH;   /* (its first row sounds at the next chunk) */
             if (sq_cue < NPAT) { sq_pi = sq_cue; sq_cue = 0xFF; }
             else if (song.nchain > 1u && !song.loop) { sq_chainpos = (uint8_t)((sq_chainpos + 1u) % song.nchain); sq_pi = song.chain[sq_chainpos] % NPAT; }
             if (punch_rev) rev_at = 0;
@@ -625,6 +635,34 @@ static int32_t tone_l, tone_r, lpf_l1, lpf_l2, lpf_r1, lpf_r2, lpf_f = 24000, li
 static int32_t trk_lp[NT], trk_g[NT], trk_gt[NT];
 static const uint8_t TRK_MULT[NT] = {50, 40, 70, 160, 180, 200};   /* the mix's balance (%): the kick at half, the synths up */
 static uint32_t half;
+#if defined(KAWA_WASM)
+/* the emulator's export: everything silent and at rest, the same random numbers every time (stems line up) */
+static void dsp_reset(void)
+{
+    uint32_t t;
+    memset(vo, 0, sizeof vo);
+    memset(pend, 0, sizeof pend);
+    memset(dly_buf, 0, sizeof dly_buf);
+    memset(cmb, 0, sizeof cmb);
+    memset(apb, 0, sizeof apb);
+    memset(tape, 0, sizeof tape);
+    memset(cmb_lp, 0, sizeof cmb_lp);
+    dly_w = 0; dly_lp = dly_out = dly_o0 = sd_prev = sr_prev = 0;
+    rev_l = rev_r = rev_l0 = rev_r0 = 0;
+    memset(cmb_i, 0, sizeof cmb_i);
+    memset(ap_i, 0, sizeof ap_i);
+    tape_w = wow_ph = flut_ph = 0;
+    tone_l = tone_r = lpf_l1 = lpf_l2 = lpf_r1 = lpf_r2 = 0;
+    lpf_f = 24000; lim_g = 32768; dbus_env = 0; dbus_g = 32768; duck = 32768; half = 0; lfo_ph = 0;
+    for (t = 0; t < NT; t++) { trk_lp[t] = 0; trk_g[t] = trk_gt[t] = 0; }
+    sq_play = 0; sq_req = 0; sq_frame = 0; sq_pos = 0; sq_cue = 0xFF;
+    punch_loop = punch_rev = punch_half = punch_scat = punch_dub = punch_wash = punch_lpf = punch_roll = punch_meter = 0;
+    sit_mute = 0; rpt_held = 0;
+    evq_r = evq_w;
+    rnd_isr = 0x9E3779B9u;
+    sq_racc = 0; exp_frames0 = exp_frames = exp_mark = 0;
+}
+#endif
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i, k, t;
@@ -638,6 +676,7 @@ static void app_audio(int32_t *out, uint32_t n)
     for (i = 0; i < n; i += CH) {
         int32_t rev_fb = 21000 + song.space * 70, dly_fb = punch_dub ? 26214 : 13763;
         uint32_t dly_len = (uint32_t)clampi((int32_t)(row_frames() * 3u / 2u), 1000, DLY_N - 1);
+        exp_frames = exp_frames0 + i;
         seq_chunk();
         for (k = 0; k < NV; k++) if (vo[k].kind != K_FREE) voice_ctl(&vo[k]);
         lfo_ph += 545400u * CH;                 /* 5.6 Hz */
@@ -763,4 +802,5 @@ static void app_audio(int32_t *out, uint32_t n)
             if (!((i + k) & 7u)) { scope[scope_w % 120u] = (int16_t)((L + R) >> 1); scope_w++; }
         }
     }
+    exp_frames0 += n;
 }

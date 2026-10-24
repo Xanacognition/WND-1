@@ -1119,11 +1119,11 @@ static void ui_leds(void)
 }
 
 /* ================================================================ drawing: flat and plain, no pictures */
-#define TOP_H 18
-#define HEAD_Y 18
-#define GRID_Y 32
-#define ROW_H 12
-#define NVIS 12
+#define TOP_H 20
+#define HEAD_Y 20
+#define GRID_Y 36
+#define ROW_H 14                                /* (12 px of text, a pixel of air above and below) */
+#define NVIS 10
 #define GUT_W 18
 #define FOC_W 72
 #define NAR_W 30
@@ -1167,30 +1167,129 @@ static void cell_text(char *o, const cell_t *c, uint32_t t)   /* "C-4 C R3" (a n
     o[8] = 0;
 }
 static void inset(int32_t x, int32_t y, int32_t w, int32_t h) { g_rect(x, y, w, h, C_INSET); }
+/* ---- the blueprints: faint line drawings behind the pages (a mech's parts, the way an engineer's sheet draws them).
+ * Lines and circles only, drawn into the band being painted: nothing stored, nothing sent unless it changes. */
+#define C_BP RGB(40, 52, 74)                    /* the drawing */
+#define C_BP2 RGB(58, 78, 116)                  /* what it points at */
+#define C_BPDOT RGB(36, 38, 44)                 /* the sheet's dots */
+static void bp_circle(int32_t cx, int32_t cy, int32_t r, uint16_t c)
+{
+    int32_t x = r, y = 0, e = 1 - r;
+    if (!g_vis(cy - r, 2 * r + 1)) return;
+    while (x >= y) {
+        g_px(cx + x, cy + y, c); g_px(cx - x, cy + y, c); g_px(cx + x, cy - y, c); g_px(cx - x, cy - y, c);
+        g_px(cx + y, cy + x, c); g_px(cx - y, cy + x, c); g_px(cx + y, cy - x, c); g_px(cx - y, cy - x, c);
+        y++;
+        if (e < 0) e += 2 * y + 1;
+        else { x--; e += 2 * (y - x) + 1; }
+    }
+}
+static void bp_dash(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)   /* 4 on, 3 off */
+{
+    int32_t n = (x1 - x0 < 0 ? x0 - x1 : x1 - x0) > (y1 - y0 < 0 ? y0 - y1 : y1 - y0) ? (x1 - x0 < 0 ? x0 - x1 : x1 - x0) : (y1 - y0 < 0 ? y0 - y1 : y1 - y0), k;
+    if (!n) return;
+    for (k = 0; k < n; k += 7) {
+        int32_t k1 = k + 4 < n ? k + 4 : n;
+        g_line(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n, x0 + (x1 - x0) * k1 / n, y0 + (y1 - y0) * k1 / n, c);
+    }
+}
+static void bp_ray(int32_t cx, int32_t cy, uint32_t ang, int32_t r0, int32_t r1, uint16_t c)   /* ang: 0..65535 a turn */
+{
+    int32_t co = sine(((uint32_t)ang << 16) + 0x40000000u), si = sine((uint32_t)ang << 16);
+    g_line(cx + (co * r0 >> 15), cy + (si * r0 >> 15), cx + (co * r1 >> 15), cy + (si * r1 >> 15), c);
+}
+static void bp_gear(int32_t cx, int32_t cy, int32_t r, uint32_t teeth, uint32_t turn, uint16_t c)
+{
+    uint32_t k;
+    if (!g_vis(cy - r - 4, 2 * r + 9)) return;
+    bp_circle(cx, cy, r, c);
+    bp_circle(cx, cy, r * 6 / 10, c);
+    bp_circle(cx, cy, r / 5 + 1, C_BP2);
+    for (k = 0; k < teeth; k++) bp_ray(cx, cy, turn + k * 65536u / teeth, r, r + 4, c);
+    for (k = 0; k < 4u; k++) bp_ray(cx, cy, turn + k * 16384u + 8192u, r / 5 + 1, r * 6 / 10, c);
+}
+static void bp_dim(int32_t x0, int32_t x1, int32_t y, uint16_t c)   /* a dimension line: ticks and arrows */
+{
+    g_rect(x0, y, x1 - x0, 1, c);
+    g_rect(x0, y - 3, 1, 7, c); g_rect(x1, y - 3, 1, 7, c);
+    g_line(x0, y, x0 + 3, y - 2, c); g_line(x0, y, x0 + 3, y + 2, c);
+    g_line(x1, y, x1 - 3, y - 2, c); g_line(x1, y, x1 - 3, y + 2, c);
+}
+static void bp_cross(int32_t x, int32_t y, int32_t r, uint16_t c)
+{
+    g_rect(x - r, y, 2 * r + 1, 1, c);
+    g_rect(x, y - r, 1, 2 * r + 1, c);
+}
+static void bp_sheet(int32_t y0, int32_t h)     /* the paper: a dot every 12 px */
+{
+    int32_t x, y;
+    for (y = y0 + 6; y < y0 + h; y += 12)
+        if (g_vis(y, 1)) for (x = 6; x < 240; x += 12) g_px(x, y, C_BPDOT);
+}
+static uint32_t bp_turn(void) { return sq_play ? (sq_rowtick & 15u) * 4096u : 0u; }   /* the gears move a notch a row */
+/* one drawing per page */
+static void bp_song(void)                       /* a frame's joint: two gears in mesh, its axis and its sizes */
+{
+    bp_gear(176, 150, 34, 14, bp_turn(), C_BP);
+    bp_gear(122, 168, 18, 8, 0x10000u - bp_turn() * 2u, C_BP);
+    bp_dash(176, 100, 176, 196, C_BP);
+    bp_dash(110, 150, 230, 150, C_BP);
+    bp_dim(142, 210, 106, C_BP);
+    bp_cross(176, 150, 6, C_BP2);
+}
+static void bp_sound(void)                      /* two operators and the path between them */
+{
+    int32_t y = TOP_H + 134;
+    g_frame(150, y - 10, 34, 20, C_BP);
+    g_frame(200, y - 10, 34, 20, C_BP);
+    bp_dash(184, y, 200, y, C_BP2);
+    g_line(196, y - 3, 200, y, C_BP2); g_line(196, y + 3, 200, y, C_BP2);
+    bp_circle(167, y, 7, C_BP); bp_circle(217, y, 7, C_BP);
+    bp_dim(150, 234, y + 18, C_BP);
+}
+static void bp_chords(void)                     /* the circle of fifths, behind the chords */
+{
+    uint32_t k;
+    bp_circle(212, TOP_H + 134, 14, C_BP);
+    bp_circle(212, TOP_H + 134, 22, C_BP);
+    for (k = 0; k < 12u; k++) bp_ray(212, TOP_H + 134, k * 65536u / 12u, 22, 26, k == (uint32_t)(song.key * 7u % 12u) ? C_BP2 : C_BP);
+}
+static void bp_arr(void)                        /* the timeline's rails */
+{
+    int32_t k;
+    for (k = 0; k < 4; k++) bp_dash(0, TOP_H + 50 + k * 35, 240, TOP_H + 50 + k * 35, C_BP);
+}
+static void bp_perform(void)                    /* a reticle */
+{
+    bp_circle(214, TOP_H + 121, 7, C_BP2);
+    bp_cross(214, TOP_H + 121, 12, C_BP);
+    bp_dim(150, 200, TOP_H + 121, C_BP);
+}
+
 static void draw_top(void)
 {
     char s[40];
     uint32_t pc = sq_play ? sq_pi : song.cur;
     g_rect(0, 0, 240, TOP_H, C_PANEL);
-    inset(2, 2, 30, 14);
-    g_text_c(17, 3, fx_on() ? "FX" : PG_NAME[page], fx_on() ? C_REDC : C_ORANGE, T_CROP | T_BOLD);
+    inset(3, 3, 30, 14);
+    g_text_c(18, 4, fx_on() ? "FX" : PG_NAME[page], fx_on() ? C_REDC : C_ORANGE, T_CROP | T_BOLD);
     s[0] = 0;
     str_cat(s, song.name);
     s[13] = 0;
-    g_text(37, 3, s, C_TXT, T_CROP);
-    inset(146, 2, 32, 14);
+    g_text(39, 4, s, C_TXT, T_CROP);
+    inset(146, 3, 32, 14);
     s[0] = (char)('A' + pc % NPAT);
     s[1] = 0;
     if (sq_play && sq_cue < NPAT) { s[1] = '>'; s[2] = (char)('A' + sq_cue); s[3] = 0; }
-    g_text(150, 3, s, C_ORANGE, T_CROP | T_BOLD);
-    inset(181, 2, 30, 14);
+    g_text(150, 4, s, C_ORANGE, T_CROP | T_BOLD);
+    inset(181, 3, 30, 14);
     fmt_u(s, song.bpm, 3);
-    g_text(184, 3, s, C_TXT, T_CROP);
-    if (sq_play) glyph_play(216, 5, C_ORANGE);
-    else g_rect(216, 5, 8, 8, C_MUTED);
-    if (rec_on) g_rrect(228, 5, 8, 8, C_REDC);
-    else if (sit_on) g_text(228, 3, "S", C_CYAN, T_CROP | T_BOLD);
-    else if (song.loop) g_text(228, 3, "L", C_MUTED, T_CROP | T_BOLD);
+    g_text(184, 4, s, C_TXT, T_CROP);
+    if (sq_play) glyph_play(217, 6, C_ORANGE);
+    else g_rect(217, 6, 8, 8, C_MUTED);
+    if (rec_on) g_rrect(229, 6, 8, 8, C_REDC);
+    else if (sit_on) g_text(229, 4, "S", C_CYAN, T_CROP | T_BOLD);
+    else if (song.loop) g_text(229, 4, "L", C_MUTED, T_CROP | T_BOLD);
 }
 static void draw_heads(void)
 {
@@ -1226,19 +1325,19 @@ static void draw_grid(void)
         g_rect(0, y, 240, ROW_H, play ? C_ORANGE : skip ? C_BG : (r & 3) == 0 ? C_BEAT : C_ROW);
         if (!play && !skip) g_rect(lane_x(sel), y, FOC_W - 2, ROW_H, g_mix((r & 3) == 0 ? C_BEAT : C_ROW, C_TXT, 12));
         hex2(s, (uint32_t)r);
-        g_text(1, y, s, play ? C_BG : cur ? C_BLUE : (r & 3) == 0 ? C_TXT : C_MUTED, T_CROP);
+        g_text(2, y + 1, s, play ? C_BG : cur ? C_BLUE : (r & 3) == 0 ? C_TXT : C_MUTED, T_CROP);
         for (t = 0; t < NT; t++) {
             const cell_t *c = &p->c[t][r];
             int32_t x = lane_x(t);
-            if (!c->n) { g_text(t == sel ? x + 2 : x + 6, y, t == sel ? "--- . .." : "--", play ? C_BG : C_FAINT, T_CROP); continue; }
+            if (!c->n) { g_text(t == sel ? x + 3 : x + 11, y + 1, t == sel ? "-" : ".", play ? C_BG : C_FAINT, T_CROP); continue; }
             cell_text(s, c, t);
             if (t == sel) {
                 char a[4] = {s[0], s[1], s[2], 0};
-                g_text(x + 2, y, a, c->n == NOTE_OFF ? C_MUTED : txt, T_CROP | (play ? T_BOLD : 0));
+                g_text(x + 3, y + 1, a, c->n == NOTE_OFF ? C_MUTED : txt, T_CROP | (play ? T_BOLD : 0));
                 if (c->n != NOTE_OFF) {
                     char v[2] = {s[4], 0};
-                    g_text(x + 34, y, v, play ? C_BG : C_MUTED, T_CROP);
-                    g_text(x + 50, y, s + 6, play ? C_BG : c->fx ? C_CYAN : C_FAINT, T_CROP);
+                    g_text(x + 35, y + 1, v, play ? C_BG : C_MUTED, T_CROP);
+                    if (c->fx) g_text(x + 51, y + 1, s + 6, play ? C_BG : C_CYAN, T_CROP);
                 }
             } else {                            /* narrow: two characters (C4, F#, a slice, a drum and its velocity) */
                 static const char H[] = "0123456789ABCDEF";
@@ -1248,7 +1347,7 @@ static void draw_grid(void)
                 else if (TRK_TYPE[t] == TY_DRUMS) { s[0] = "SHOC"[drm_kind(c->n)]; s[1] = H[c->v & 15u]; }
                 else { note_name(c->n, s); if (s[1] == '-') s[1] = s[2]; }
                 s[2] = 0;
-                g_text(x + 6, y, s, c->n == NOTE_OFF ? C_MUTED : song.trk[t].mute && !play ? C_FAINT : play ? C_BG : TRK_TYPE[t] == TY_SYNTH ? C_NOTE : g_mix(TRK_COL[t], C_TXT, 110), T_CROP);
+                g_text(x + 7, y + 1, s, c->n == NOTE_OFF ? C_MUTED : song.trk[t].mute && !play ? C_FAINT : play ? C_BG : TRK_TYPE[t] == TY_SYNTH ? C_NOTE : g_mix(TRK_COL[t], C_TXT, 110), T_CROP);
             }
         }
         if (cur && !play) g_frame(lane_x(sel), y, FOC_W - 2, ROW_H, C_BLUE);
@@ -1258,6 +1357,8 @@ static void draw_perform(void)                  /* FX: the punch-ins on the whit
 {
     uint32_t k;
     g_rect(0, TOP_H, 240, BODY_H, C_BG);
+    bp_sheet(TOP_H, BODY_H);
+    bp_perform();
     g_text(6, TOP_H + 3, "PERFORM", C_ORANGE, T_CROP | T_BOLD);
     g_text(70, TOP_H + 3, fx_latch ? "STAYS - FX CLOSES" : "FX TWICE: IT STAYS", C_MUTED, T_CROP);
     for (k = 0; k < NPUNCH; k++) {
@@ -1281,6 +1382,8 @@ static void draw_arr(void)
     uint32_t k, n = song.nchain;
     char s[24], *e;
     g_rect(0, TOP_H, 240, BODY_H, C_BG);
+    bp_sheet(TOP_H, BODY_H);
+    bp_arr();
     g_text(6, TOP_H + 3, "ARRANGEMENT", C_ORANGE, T_CROP | T_BOLD);
     s[0] = 0;
     if (song.loop) { e = str_cat(s, "LOOP "); e[0] = (char)('A' + song.cur % NPAT); e[1] = 0; }
@@ -1314,6 +1417,8 @@ static void draw_sng(void)
     int32_t y;
     const char *b = g->blurb;
     g_rect(0, TOP_H, 240, BODY_H, C_BG);
+    bp_sheet(TOP_H, BODY_H);
+    bp_song();
     g_rect(0, TOP_H, 240, 56, C_ROW);
     s[0] = 0;
     e = str_cat(s, "GENRE ");
@@ -1336,7 +1441,7 @@ static void draw_sng(void)
         int32_t sl = clampi((int32_t)slot_sel - 4, 1, (int32_t)NSLOT - 8) + (int32_t)k;
         int32_t yy = y + (int32_t)k * 12;
         if (sl < 1 || sl >= (int32_t)NSLOT) continue;
-        g_rect(0, yy, 240, 12, sl == slot_sel ? C_PANEL : (k & 1u) ? C_ROW : C_BG);
+        if (sl == slot_sel) g_rect(0, yy, 240, 12, C_PANEL);
         s[0] = 0;
         fmt_u(s, (uint32_t)sl, 2);
         g_text(6, yy, s, sl == slot_sel ? C_BLUE : C_MUTED, T_CROP);
@@ -1349,6 +1454,8 @@ static void draw_chd(void)
     uint32_t k, now = song.ndeg ? (uint32_t)((sq_play ? sq_row : cur_row) / (song.rows ? song.rows : 16u)) % song.ndeg : 0u;
     char nm[8], rom[8], s[40], *e;
     g_rect(0, TOP_H, 240, BODY_H, C_BG);
+    bp_sheet(TOP_H, BODY_H);
+    bp_chords();
     s[0] = 0;
     e = str_cat(s, WB_PROGS[(prog_due ? prog_sel : song.prog) % WB_NPROG].name);
     e = str_cat(e, "  ");
@@ -1377,6 +1484,8 @@ static void draw_snd(void)
     char s[40], *e;
     const char *eng, *nm;
     g_rect(0, TOP_H, 240, BODY_H, C_BG);
+    bp_sheet(TOP_H + 42, BODY_H - 42);
+    bp_sound();
     g_rect(0, TOP_H, 240, 42, C_ROW);
     g_rect(0, TOP_H, 3, 42, TRK_COL[t]);
     s[0] = 0;
@@ -1390,19 +1499,19 @@ static void draw_snd(void)
          TRK_TYPE[t] == TY_DRUMS && sub >= 2u ? WB_HAT_NAME[song.trk[t].patch2 % WB_NHAT] : patch_name(t, song.trk[t].patch);
     g_text(9, TOP_H + 20, nm, C_ORANGE, T_BOLD);
     /* the sound as it plays: a line over a few guides */
-    for (k = 1; k < 4u; k++) g_rect(0, TOP_H + 46 + (int32_t)k * 22, 240, 1, C_ROW);
-    for (k = 1; k < 8u; k++) g_rect((int32_t)k * 30, TOP_H + 46, 1, 88, C_ROW);
-    g_rect(0, TOP_H + 90, 240, 1, C_FAINT);
+    for (k = 1; k < 4u; k++) g_rect(0, TOP_H + 46 + (int32_t)k * 17, 240, 1, C_ROW);
+    for (k = 1; k < 8u; k++) g_rect((int32_t)k * 30, TOP_H + 46, 1, 68, C_ROW);
+    g_rect(0, TOP_H + 80, 240, 1, C_FAINT);
     for (k = 0; k < 119u; k++) {
         int32_t a = scope[(scope_w + k) % 120u], b2 = scope[(scope_w + k + 1u) % 120u];
-        g_line((int32_t)k * 2, TOP_H + 90 - clampi(a / 700, -42, 42), (int32_t)k * 2 + 2, TOP_H + 90 - clampi(b2 / 700, -42, 42), TRK_COL[t]);
+        g_line((int32_t)k * 2, TOP_H + 80 - clampi(a / 900, -32, 32), (int32_t)k * 2 + 2, TOP_H + 80 - clampi(b2 / 900, -32, 32), TRK_COL[t]);
     }
     s[0] = 0;
     e = fmt_u(str_cat(s, "KNOBS "), sub % snd_npages(t) + 1u, 0);
     *e++ = '/';
     e = fmt_u(e, snd_npages(t), 0);
-    str_cat(e, "  EDIT: MORE");
-    g_text(6, TOP_H + 140, s, C_MUTED, T_CROP);
+    str_cat(e, "  EDIT");
+    g_text(6, TOP_H + 126, s, C_MUTED, T_CROP);
 }
 static void draw_info(void)
 {
@@ -1559,6 +1668,40 @@ WASM_EXPORT("kawa_sample_slot_name") const char *kawa_sample_slot_name(uint32_t 
 WASM_EXPORT("kawa_store") uint8_t *kawa_store(void) { return &host_flash[0][0]; }
 WASM_EXPORT("kawa_store_size") uint32_t kawa_store_size(void) { return NSLOT * SLOT_SIZE; }
 WASM_EXPORT("kawa_store_gen") uint32_t kawa_store_gen(void) { return store_gen; }
+/* audio export (the page renders offline, in its own copy of the engine): the song comes in as bytes, then
+ * wb_export(what, solo) gets the engine ready and says how many frames make it:
+ *   what 0..7   pattern A..H as a loop: the page renders it twice and keeps the second pass (the reverb's tail
+ *               runs into the start, so the loop is seamless), the length is exact at the tempo
+ *   what 8      the whole arrangement once, then two seconds of tail
+ *   solo        0 every track, 1 + t that track alone (a stem); the same random numbers every time */
+WASM_EXPORT("wb_song") uint8_t *wb_song(void) { return (uint8_t *)&song; }
+WASM_EXPORT("wb_song_size") uint32_t wb_song_size(void) { return sizeof song; }
+WASM_EXPORT("wb_pat_used") uint32_t wb_pat_used(uint32_t p)   /* 1: the pattern has a note */
+{
+    uint32_t t, r;
+    for (t = 0; t < NT; t++) for (r = 0; r < NROW; r++) if (song.pat[p % NPAT].c[t][r].n) return 1;
+    return 0;
+}
+static uint32_t pat_frames(uint32_t p)           /* exact: steps x 15 s / BPM at 44100 Hz */
+{
+    uint32_t L = song.pat[p % NPAT].len ? song.pat[p % NPAT].len : 16u;
+    return (uint32_t)(((uint64_t)steps_of(L) * 661500u + song.bpm / 2u) / (song.bpm ? song.bpm : 100u));
+}
+WASM_EXPORT("wb_export") uint32_t wb_export(uint32_t what, uint32_t solo)
+{
+    uint32_t t, n = 0, k;
+    dsp_reset();
+    for (t = 0; t < NT; t++) { song.trk[t].solo = (uint8_t)(solo && t == solo - 1u); if (solo) song.trk[t].mute = 0; }
+    if (what < NPAT) { song.loop = 1; song.cur = (uint8_t)what; n = pat_frames(what); }
+    else {
+        song.loop = 0;
+        for (k = 0; k < (song.nchain ? song.nchain : 1u); k++) n += pat_frames(song.nchain ? song.chain[k] : song.cur);
+        n += 2u * 44100u;
+    }
+    sq_req = 1;
+    return n;
+}
+WASM_EXPORT("wb_export_mark") uint32_t wb_export_mark(void) { return exp_mark; }   /* the frame pass 2 starts on */
 WASM_EXPORT("kawa_store_loaded") void kawa_store_loaded(void)   /* the page put the slots back: the autosave, if any */
 {
     slots_scan();

@@ -334,6 +334,21 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     </div>
   </section>
 
+  <section class="panel export" aria-labelledby="exp-h">
+    <div class="proj">
+      <div>
+        <h2 id="exp-h">Export audio</h2>
+        <p>Renders the song as it is on the FM-1 now into 16-bit, 44.1 kHz WAV files, in a ZIP. <b>Loops</b>: each pattern A-H that has notes, one bar-exact loop each (the reverb tail wraps round, so they loop cleanly in Renoise or any DAW). <b>Loops + stems</b>: the same, plus every track of every pattern alone. <b>Whole song</b>: the arrangement once, with its tail.</p>
+        <p class="pmsg" id="exp-msg" role="status"></p>
+      </div>
+      <div class="acts">
+        <button type="button" class="sbtn" id="exp-loops">Loops</button>
+        <button type="button" class="sbtn" id="exp-stems">Loops + stems</button>
+        <button type="button" class="sbtn" id="exp-song">Whole song</button>
+      </div>
+    </div>
+  </section>
+
   <div class="guide">
     <section><h2 data-t="g1"></h2><ul data-t="g1l"></ul></section>
     <section><h2 data-t="g2"></h2><ul data-t="g2l"></ul></section>
@@ -425,6 +440,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       else if (d.t === "lang") x.kawa_lang(d.v | 0);
       else if (d.t === "sample") this.putSample(d.slot, d.data, d.name, d.rate);
       else if (d.t === "store") this.putStore(d.data);
+      else if (d.t === "getsong") { const b = this.u8(x.wb_song(), x.wb_song_size()).slice(); this.emit({t: "song", data: b}, [b.buffer]); }
       else if (d.t === "getstore") this.sendStore(true);
     }
     hello() { const x = this.ex; this.emit({t: "ready", cap: x.kawa_sample_size(), store: x.kawa_store_size()}); }
@@ -1129,6 +1145,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     else if (d.t === "ui") showUi(d);
     else if (d.t === "slots") { ui.names = d.names; renderSlots(); }
     else if (d.t === "store") onStore(d.data, d.asked);
+    else if (d.t === "song" && songWait) { const f = songWait; songWait = null; f(d.data); }
     else if (d.t === "ready") { CAP = d.cap || CAP; STORE_SIZE = d.store || STORE_SIZE; }
   }
 
@@ -1554,6 +1571,106 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   document.querySelectorAll(".langs button").forEach((b) => b.addEventListener("click", () => applyLang(b.dataset.lang)));
   applyLang(firstLang());
   if (loadStore() && hasProject(loadStore())) projMsg("");
+
+  /* ---- audio export: a copy of the engine, offline, as fast as it goes; WAVs in a ZIP (stored, not compressed) */
+  let songWait = null, exporting = false;
+  const TRK = ["BRK", "KIK", "DRM", "BAS", "KEY", "SYN"];
+  function liveSong() { return new Promise((res, rej) => { songWait = res; send({t: "getsong"}); setTimeout(() => { if (songWait) { songWait = null; rej(new Error("no answer from the engine")); } }, 3000); }); }
+  function wavOf(pcm) {                          /* Int16Array, stereo interleaved */
+    const n = pcm.length * 2, b = new ArrayBuffer(44 + n), v = new DataView(b);
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, "RIFF"); v.setUint32(4, 36 + n, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 44100 * 4, true); v.setUint16(32, 4, true);
+    v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n, true);
+    new Int16Array(b, 44).set(pcm);
+    return new Uint8Array(b);
+  }
+  const CRC = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[i] = c >>> 0; } return t; })();
+  function crc32(u) { let c = 0xFFFFFFFF; for (let i = 0; i < u.length; i++) c = CRC[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function zipOf(files) {                        /* [{name, data: Uint8Array}] -> Blob */
+    const parts = [], cen = [];
+    let off = 0;
+    for (const f of files) {
+      const nm = new TextEncoder().encode(f.name), c = crc32(f.data), h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint32(14, c, true);
+      h.setUint32(18, f.data.length, true); h.setUint32(22, f.data.length, true); h.setUint16(26, nm.length, true);
+      parts.push(new Uint8Array(h.buffer), nm, f.data);
+      const e = new DataView(new ArrayBuffer(46));
+      e.setUint32(0, 0x02014b50, true); e.setUint16(4, 20, true); e.setUint16(6, 20, true); e.setUint32(16, c, true);
+      e.setUint32(20, f.data.length, true); e.setUint32(24, f.data.length, true); e.setUint16(28, nm.length, true); e.setUint32(42, off, true);
+      cen.push(new Uint8Array(e.buffer), nm);
+      off += 30 + nm.length + f.data.length;
+    }
+    const size = cen.reduce((a, u) => a + u.length, 0), end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, size, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...cen, new Uint8Array(end.buffer)], {type: "application/zip"});
+  }
+  async function saveFile(name, blob) {
+    const c = window.claude && window.claude.use ? await window.claude.use("downloads").catch(() => null) : null;
+    if (c) { await c.save({filename: name, data: blob}); return; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  }
+  async function render(x, what, solo, loop) {   /* -> Int16Array: a loop (the second pass, from where the engine says the
+                                                    pattern came round), or the song from its start */
+    const n = x.wb_export(what, solo), total = loop ? 2 * n + 8192 : n, all = new Int16Array(total * 2);
+    let done = 0;
+    while (done < total) {
+      const f = new Float32Array(x.memory.buffer, x.kawa_audio(), 512);
+      for (let i = 0; i < 256 && done < total; i++, done++) {
+        all[2 * done] = Math.max(-32767, Math.min(32767, Math.round(f[2 * i] * 32768)));
+        all[2 * done + 1] = Math.max(-32767, Math.min(32767, Math.round(f[2 * i + 1] * 32768)));
+      }
+      if ((done & 0x3FFFF) < 256) await new Promise((r) => setTimeout(r, 0));   /* breathe: the page stays alive */
+    }
+    const at = loop ? Math.min(x.wb_export_mark() || n, total - n) : 0;
+    return all.slice(2 * at, 2 * (at + n));
+  }
+  async function exportAudio(kind) {
+    if (exporting) return;
+    const msg = $("exp-msg");
+    if (!running) { msg.textContent = "Power on first: the export renders the song the FM-1 has."; return; }
+    exporting = true;
+    try {
+      msg.textContent = "Reading the song…";
+      const bytes = await liveSong();
+      const x = new WebAssembly.Instance(new WebAssembly.Module(wasmBytes()), {}).exports;
+      x.kawa_init();
+      x.kawa_master(4096);
+      const put = () => new Uint8Array(x.memory.buffer, x.wb_song(), x.wb_song_size()).set(bytes);
+      put();
+      const name = (String.fromCharCode(...bytes.subarray(8, 24)).replace(/\0.*$/, "").trim() || "wonderblue").replace(/[^A-Za-z0-9 #-]+/g, "").replace(/ +/g, "-");
+      const bpm = bytes[24], files = [];
+      if (kind === "song") {
+        msg.textContent = "Rendering the whole song…";
+        files.push({name: `${name}-${bpm}bpm-song.wav`, data: wavOf(await render(x, 8, 0, false))});
+      } else {
+        for (let p = 0; p < 8; p++) {
+          put();
+          if (!x.wb_pat_used(p)) continue;
+          const L = "ABCDEFGH"[p];
+          msg.textContent = `Rendering pattern ${L}…`;
+          files.push({name: `${name}-${bpm}bpm-${L}.wav`, data: wavOf(await render(x, p, 0, true))});
+          if (kind === "stems")
+            for (let t = 0; t < 6; t++) {
+              put();
+              msg.textContent = `Rendering pattern ${L}, ${TRK[t]}…`;
+              files.push({name: `${name}-${bpm}bpm-${L}-${TRK[t]}.wav`, data: wavOf(await render(x, p, t + 1, true))});
+            }
+        }
+      }
+      msg.textContent = `Packing ${files.length} WAV file${files.length > 1 ? "s" : ""}…`;
+      await saveFile(`${name}-${kind}.zip`, zipOf(files));
+      msg.textContent = `Done: ${files.length} WAV file${files.length > 1 ? "s" : ""} (${name}-${kind}.zip).`;
+    } catch (e) {
+      msg.textContent = e && e.code === "declined" ? "Not saved." : "Export failed: " + ((e && e.message) || e);
+    } finally { exporting = false; }
+  }
+  $("exp-loops").addEventListener("click", () => exportAudio("loops"));
+  $("exp-stems").addEventListener("click", () => exportAudio("stems"));
+  $("exp-song").addEventListener("click", () => exportAudio("song"));
 
   /* ---- power on: the saved projects and the samples go in before the first step */
   function wasmBytes() {
