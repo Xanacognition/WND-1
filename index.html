@@ -7,7 +7,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KAWA — Pocket Tracker for the M-VAVE FM-1</title>
+<title>Wonderblue-OS — install on the M-VAVE FM-1</title>
 <meta name="description" content="A free tracker firmware for the M-VAVE FM-1, made above all for chiptune and IDM. Install it from your browser over USB. Beta, GPL-3.0.">
 <meta name="theme-color" content="#120c24">
 <meta name="color-scheme" content="dark">
@@ -134,7 +134,7 @@ dialog .yes:hover { color: #1c0a30; filter: brightness(1.08); }
 <header class="hero">
   <img src="manual/img/kawa-preview.png" width="1280" height="640"
        alt="KAWA on the M-VAVE FM-1: the tracks, the FM sound, the live effects and the envelope screens">
-  <h1>KAWA — Pocket Tracker for the M-VAVE FM-1</h1>
+  <h1>Wonderblue-OS — a genre tracker for the M-VAVE FM-1</h1>
   <p class="tagline">Made for chiptune and IDM: breakbeat slicing, rolls, stutter, glitch effects, FM and 4-bit waves, 6 tracks</p>
   <p class="lead">A free tracker firmware for the M-VAVE FM-1. Write patterns on six tracks (FM, chiptune, drums, breaks, samples), chain them into a song, and play live effects. Beta, GPL-3.0.</p>
 </header>
@@ -146,7 +146,7 @@ dialog .yes:hover { color: #1c0a30; filter: brightness(1.08); }
 </section>
 
 <section class="card install" id="install" aria-labelledby="install-h">
-  <h2 id="install-h">Install KAWA</h2>
+  <h2 id="install-h">Install Wonderblue-OS</h2>
   <ol class="steps">
     <li>Switch the FM-1 on and plug it into this computer with a USB <em>data</em> cable.</li>
     <li>Close every other program that uses MIDI.</li>
@@ -154,7 +154,7 @@ dialog .yes:hover { color: #1c0a30; filter: brightness(1.08); }
   </ol>
 
   <div class="actions">
-    <button id="go" class="big" type="button" disabled>Install KAWA</button>
+    <button id="go" class="big" type="button" disabled>Install Wonderblue-OS</button>
     <label class="btn" id="pick" for="file" tabindex="0" role="button">Use a local .fwsc file…</label>
     <input id="file" type="file" accept=".fwsc" hidden>
   </div>
@@ -191,7 +191,7 @@ dialog .yes:hover { color: #1c0a30; filter: brightness(1.08); }
 
   <section class="card official" id="official" aria-labelledby="official-h">
     <h2 id="official-h">Back to the official firmware</h2>
-    <p>Not for you? Put M-VAVE's firmware back with M-VAVE's own <strong>M-UPGRADE</strong> tool. Your KAWA projects will be lost.
+    <p>Not for you? Put M-VAVE's firmware back with M-VAVE's own <strong>M-UPGRADE</strong> tool. Your saved songs will be lost.
     Read the steps first: <a href="https://github.com/Guizmoh/Kawa-Tracker-Fm1#back-to-the-official-firmware">README, Back to the official firmware</a>.
     This page does not install the official firmware.</p>
   </section>
@@ -226,7 +226,7 @@ dialog .yes:hover { color: #1c0a30; filter: brightness(1.08); }
 </section>
 
 <footer>
-  <p>KAWA by Omnipotard, GPL-3.0-only. It builds on Felucca by Leo Kuroshita (Hügelton Instruments) and SLOOP. Not made or endorsed by M-VAVE.
+  <p>Wonderblue-OS (WND-1), GPL-3.0-only, built on KAWA by Omnipotard. It builds on Felucca by Leo Kuroshita (Hügelton Instruments) and SLOOP. Not made or endorsed by M-VAVE.
   "M-VAVE" and "FM-1" belong to their owners.</p>
   <noscript><p>The installer needs JavaScript.</p></noscript>
 </footer>
@@ -235,7 +235,7 @@ dialog .yes:hover { color: #1c0a30; filter: brightness(1.08); }
 
 <dialog id="dlg" aria-labelledby="dlg-h">
   <form method="dialog">
-    <h2 id="dlg-h">Write KAWA to the FM-1?</h2>
+    <h2 id="dlg-h">Write Wonderblue-OS to the FM-1?</h2>
     <p id="dlg-info"></p>
     <p id="dlg-resume" hidden>This FM-1 is in update mode (an earlier install was cut off): the write will be finished.</p>
     <p class="strong">Do not unplug the FM-1, do not close or reload this page, and do not let the computer sleep while it is writing. It takes a few minutes.</p>
@@ -278,7 +278,7 @@ function lock(on) {
 function fail(e) {
     var m = e && e.message ? e.message : String(e);
     $("error").textContent = (e instanceof K.InstallError ? "Error: " : "Unexpected error: ") + m +
-        (e instanceof K.InstallError ? "" : "\nIf the FM-1 shows an update screen or does not start, plug it in again and click Install KAWA: the install resumes.");
+        (e instanceof K.InstallError ? "" : "\nIf the FM-1 shows an update screen or does not start, plug it in again and click Install Wonderblue-OS: the install resumes.");
     show("error", true);
     bar(undefined);
     var clean = e instanceof K.InstallError && (/^(badpkg|nomidi|download|notfound|model|foreign)$/.test(e.code) || /nothing was written/.test(m));
@@ -348,7 +348,7 @@ async function install(src) {
             step: onStep, confirm: ask, busy: setWriting,
         });
         if (res.cancelled) { status("Cancelled. Nothing was written."); return; }
-        var fin = "Done: the FM-1 runs " + (pkg.site ? "KAWA (" + res.id + ")" : res.id) + ".";
+        var fin = "Done: the FM-1 runs " + (pkg.site ? "Wonderblue-OS (" + res.id + ")" : res.id) + ".";
         status(fin);
         $("done").textContent = fin;
         show("done", true);
@@ -368,7 +368,7 @@ async function check() {                 // fm1_install.py --info
     status("Looking for the FM-1 (allow MIDI access if asked)…");
     try {
         var r = await K.probe({ nav: navigator, port: port.value.trim() || undefined });
-        status("FM-1 found on the port \"" + r.port + "\": " + r.id + (r.loader ? ", in update mode (an earlier install was cut off: Install KAWA finishes it)." : ", running."));
+        status("FM-1 found on the port \"" + r.port + "\": " + r.id + (r.loader ? ", in update mode (an earlier install was cut off: Install Wonderblue-OS finishes it)." : ", running."));
         logLine(r.text);
     } catch (e) {
         fail(e);
@@ -381,7 +381,7 @@ function start() {
     if (!K) { status("The installer script (install/webinstall.js) did not load."); return; }
     if (typeof navigator.requestMIDIAccess !== "function") {         // Safari, Firefox before 108, a page not served over https
         pick.classList.add("off");
-        K.connect(navigator).catch(function (e) { fail(e); status("This browser cannot install KAWA."); });
+        K.connect(navigator).catch(function (e) { fail(e); status("This browser cannot install Wonderblue-OS."); });
         return;
     }
     lock(false);
@@ -400,7 +400,7 @@ if (K && typeof fetch === "function") {
         if (n) { $("pkg").textContent = "Package: " + n.name; show("pkg", true); }
     }).catch(function () {
         if (location.protocol === "file:") {
-            $("pkg").textContent = "Opened from a file: the page cannot download the package. Use a local .fwsc file (install/kawa-*.fwsc).";
+            $("pkg").textContent = "Opened from a file: the page cannot download the package. Use a local .fwsc file (install/wnd-1-*.fwsc).";
             show("pkg", true);
         }
     });

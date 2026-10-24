@@ -2,12 +2,12 @@
 rem KAWA: installs the firmware in install\ on the M-VAVE FM-1. Double-click it. Needs Python 3 (python.org).
 cd /d "%~dp0"
 echo.
-echo  KAWA - Pocket Tracker for the M-VAVE FM-1
+echo  Wonderblue-OS for the M-VAVE FM-1
 echo  1. Switch the FM-1 on, plug it in with a USB DATA cable, close every other MIDI program.
 echo  2. Unplug nothing until the installer says it is done.
 echo.
 set "PKG="
-for %%f in (install\kawa-*.fwsc) do set "PKG=%%f"
+for %%f in (install\wnd-1-*.fwsc) do set "PKG=%%f"
 if not defined PKG (
   echo No firmware in the install folder.
   goto end

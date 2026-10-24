@@ -629,13 +629,13 @@ function newerVersion(a, b) {             // [0, 10] > [0, 9]; a missing number 
     return false;
 }
 
-function newestInSums(text) {             // install/SHA256SUMS -> the newest "kawa-X.Y.fwsc" there (not older/...), or null
-    let best = null;
+function newestInSums(text) {             // install/SHA256SUMS -> the newest "wnd-1-X.Y.fwsc" there (Wonderblue-OS; else the
+    let best = null;                      // newest "kawa-X.Y.fwsc"), not older/..., or null
     for (const line of String(text).split(/\r?\n/)) {
-        const m = /^([0-9a-f]{64}) [ *]?(kawa-(\d+(?:\.\d+)*)\.fwsc)$/i.exec(line.trim());
+        const m = /^([0-9a-f]{64}) [ *]?((wnd-1|kawa)-(\d+(?:\.\d+)*)\.fwsc)$/i.exec(line.trim());
         if (!m) continue;
-        const v = m[3].split(".").map(Number);
-        if (!best || newerVersion(v, best.v)) best = { name: m[2], sha256: m[1].toLowerCase(), v };
+        const v = m[4].split(".").map(Number), wb = m[3].toLowerCase() === "wnd-1";
+        if (!best || (wb && !best.wb) || (wb === best.wb && newerVersion(v, best.v))) best = { name: m[2], sha256: m[1].toLowerCase(), v, wb };
     }
     return best && { name: best.name, sha256: best.sha256 };
 }
@@ -649,7 +649,7 @@ async function fetchLatest(fetchFn, dir = "install/") {
         const r = await fetchFn(dir + "SHA256SUMS", { cache: "no-cache" });
         if (r.ok) latest = newestInSums(await r.text());
         else why = `HTTP ${r.status}`;
-        if (r.ok && !latest) why = "no kawa-*.fwsc in it";
+        if (r.ok && !latest) why = "no wnd-1-*.fwsc in it";
     } catch (e) {
         why = (e && e.message) || "network error";
     }

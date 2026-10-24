@@ -7,7 +7,7 @@ on:
   pull_request:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write                          # (the wonderblue-os branch: the package goes into install/ and a release)
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -53,3 +53,25 @@ jobs:
             source/build/wnd-1-0.2.fwsc
             emulator/index.html
           if-no-files-found: error
+      - name: publish the package (wonderblue-os only)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/wonderblue-os'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # the web installer (index.html) and the launchers take the newest install/wnd-1-*.fwsc that install/SHA256SUMS names
+          F=wnd-1-0.2.fwsc
+          cp source/build/$F install/$F
+          grep -v ' wnd-1-' install/SHA256SUMS > /tmp/sums || true
+          (cd install && sha256sum $F) >> /tmp/sums && mv /tmp/sums install/SHA256SUMS
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install/$F install/SHA256SUMS
+          if ! git diff --cached --quiet; then
+            git commit -m "install: $F from ${GITHUB_SHA::7} [skip ci]"
+            git pull --rebase origin wonderblue-os && git push origin HEAD:wonderblue-os
+          fi
+          # and a release to download it from (replaced by every build of this branch)
+          gh release view wonderblue-0.2 >/dev/null 2>&1 || gh release create wonderblue-0.2 --prerelease --target "$GITHUB_SHA" \
+            --title "Wonderblue-OS 0.2 (beta, untested on hardware)" \
+            --notes "Install: open the web installer (index.html on GitHub Pages) in Chrome or Edge with the FM-1 plugged in, or run INSTALL-*.  Go back: M-VAVE's M-UPGRADE puts the official firmware back."
+          gh release upload wonderblue-0.2 "install/$F" --clobber

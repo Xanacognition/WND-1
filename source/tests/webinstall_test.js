@@ -448,7 +448,9 @@ test("the package of the site: newest in SHA256SUMS, its hash is the file's, fet
     // no SHA256SUMS (a page opened from a file, offline): the newest cannot be known, so it says so instead of guessing a version
     const noSums = async url => (url === "install/SHA256SUMS" ? { ok: false, status: 404 } : fake(url, { cache: "no-cache" }));
     await assert.rejects(W.fetchLatest(noSums), e => e.code === "download" && /^cannot read install\/SHA256SUMS to find the newest package \(HTTP 404\); opened from a file, or offline\? Choose the \.fwsc file from the install folder instead$/.test(e.message));
-    await assert.rejects(W.fetchLatest(async url => ({ ok: true, text: async () => "nothing here\n" })), e => /no kawa-\*\.fwsc in it/.test(e.message));
+    await assert.rejects(W.fetchLatest(async url => ({ ok: true, text: async () => "nothing here\n" })), e => /no wnd-1-\*\.fwsc in it/.test(e.message));
+    // Wonderblue-OS: its package comes before KAWA's, whatever their versions
+    assert.deepEqual(W.newestInSums(`${h}  kawa-0.9.fwsc\n${g}  wnd-1-0.2.fwsc\n${h}  wnd-1-0.1.fwsc\n`), { name: "wnd-1-0.2.fwsc", sha256: g });
     // a download that is not what the sums say
     const wrong = async url => (url === "install/SHA256SUMS" ? fake(url, { cache: "no-cache" }) : { ok: true, arrayBuffer: async () => new ArrayBuffer(1000) });
     await assert.rejects(W.fetchLatest(wrong), e => e.code === "download" && /does not match install\/SHA256SUMS; nothing was written/.test(e.message));
