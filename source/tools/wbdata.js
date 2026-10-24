@@ -202,6 +202,15 @@ const GENRE_DEF=[
  ['DIGICORE','Bedroom hyperpop: bells, 808s, sad chords',[140,160],[.5,.52],['MAJOR','LYDIAN'],['SAD','AXIS','FLOAT'],[5,3,0,4],
   {brk:['off'],bs:[0],k:['trap'],s:['halfs'],h:['htrap'],bas:['sub'],key:'mel',km:['motif','arp'],
    snd:{KIK:['BOOM'],SNR:['CLAP'],HAT:['CRISP'],BAS:['808 GLIDE'],KEY:['HYPER LEAD','MUSIC BOX','HYPER VOX']},fx:[.1,.1,.45]}],
+ ['RPG BATTLE','Turn-based fight: driving drums, brass and strings',[150,168],[.5,.52],['MINOR','DORIAN'],['EPIC','ANDAL'],[0,5,6,4],
+  {brk:['off','straight'],bs:[1,0],k:['four','boom'],s:['back'],h:['h8','h16'],bas:['eighths','walk'],key:'mel',km:['lead','arp'],
+   snd:{KIK:['PUNCH','909'],SNR:['CRACK','909'],HAT:['TIGHT','CRISP'],BAS:['FM PLUCK','SUB BASS'],KEY:['BRASSY','SQUARE LEAD','STRINGS']},fx:[0,0,.35]}],
+ ['RPG TOWN','A sunny village: music box, soft drums, easy bass',[96,112],[.52,.56],['MAJOR','LYDIAN'],['AXIS','50S','ROYAL','CANON'],[0,3,4,0],
+  {brk:['off'],bs:[5],k:['one','bossa'],s:['backg','bossaS'],h:['hsparse','hshuf'],bas:['roots','walk'],key:'mel',km:['motif','arp'],
+   snd:{KIK:['SOFT'],SNR:['BRUSH','RIM'],HAT:['SHAKER','TIGHT'],BAS:['SUB BASS','FM PLUCK'],KEY:['MUSIC BOX','GLASS BELL','WARM KEYS']},fx:[0,0,.45]}],
+ ['RPG BOSSFIGHT','The final boss: pounding drums, choir, a screaming lead',[164,180],[.5,.51],['PHRYGIAN','MINOR'],['ANDAL','EPIC'],[0,1,0,6],
+  {brk:['chop','storm'],bs:[3,2],k:['four','dnb'],s:['back','backg'],h:['h16','htrap'],bas:['eighths','acid'],key:'mel',km:['lead','arp'],storm:1,
+   snd:{KIK:['HARDSTYLE','PUNCH'],SNR:['FAT','LAYER'],HAT:['METAL','CRISP'],BAS:['REESE','DUB BASS'],KEY:['SQUARE LEAD','HOOVER','BRASSY']},fx:[0,0,.3]}],
 ];
 // sounds the earlier genres gain from the new engines
 const SOUND_UPGRADE={
@@ -244,10 +253,12 @@ const SIG={
  'JERSEY CLUB':['808 GLIDE','VOX CHOP/HYPER VOX','SUPERSAW'],'PHONK':['808 GLIDE','MUSIC BOX/GLASS BELL','CHOIR/VOX AH'],
  'DRILL':['808 GLIDE','STRINGS/GLASS BELL','CHOIR/STRINGS'],'FUTURE BASS':['808 GLIDE','SUPERSAW','VOX CHOP/HYPER VOX'],
  'NIGHTCORE':['SUB BASS','SUPERSAW/HYPER VOX','SUPERSAW/PWM PAD'],'DIGICORE':['808 GLIDE','HYPER LEAD/MUSIC BOX','PWM PAD/SUPERSAW'],
+ 'RPG BATTLE':['FM PLUCK','BRASSY/SQUARE LEAD','STRINGS/CHOIR'],'RPG TOWN':['SUB BASS','MUSIC BOX/GLASS BELL','STRINGS/WARM KEYS'],
+ 'RPG BOSSFIGHT':['REESE','SQUARE LEAD/HOOVER','CHOIR/STRINGS'],
 };
 // how hard the beat pushes the bass and keys down (sidechain), by genre
 const PUMP={'HOUSE':.3,'DEEP HOUSE':.25,'TECHNO':.3,'ACID':.3,'TRANCE':.45,'HARDSTYLE':.5,'HAPPY HARDCORE':.45,'NIGHTCORE':.4,'FUTURE BASS':.55,
-  'HYPERPOP':.4,'DIGICORE':.35,'RAVE':.3,'UK GARAGE':.25,'DISCO':.25,'GABBER':.4,'FUNKADELIC HYPERPOP':.3,'AMBIENT':0,'DARK AMBIENT':0};
+  'HYPERPOP':.4,'DIGICORE':.35,'RAVE':.3,'UK GARAGE':.25,'DISCO':.25,'GABBER':.4,'FUNKADELIC HYPERPOP':.3,'AMBIENT':0,'DARK AMBIENT':0,'RPG BOSSFIGHT':.2,'RPG BATTLE':.1};
 const STYLES=GENRE_DEF.map(([name,blurb,bpm,swing,scales,progs,prog,g])=>({
   id:name.toLowerCase().replace(/[^a-z]+/g,'-'),name,blurb,bpm,swing,scales,scale:scales[0],progs,prog,storm:!!g.storm,
   keys:[0,2,4,5,7,9,10,11,1,3],age:g.fx[0],crush:g.fx[1],space:g.fx[2],keyChord:g.key==='chd',brks:g.bs,

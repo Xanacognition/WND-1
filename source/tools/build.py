@@ -231,6 +231,8 @@ def check(img, syms, dis, rt):
             continue
         for v in re.findall(r"= (-?\d+) <|call -?\d+ <[^:>]*: ([0-9a-f]+) >", mm.group(3)):
             val = (int(v[0]) & 0xFFFFFFFF) if v[0] else int(v[1], 16) & 0xFFFFFFFF
+            if v[0] and val & 1:        # an odd constant loaded (not called) is a number, never a code address:
+                continue                # pi32v2 code is 2-byte aligned (e.g. 0xffce0001, two packed int16s)
             if 0xFFC00000 <= val < 0xFFD00000:
                 errors.append(f"reference to ROM address {val:#010x} in {fn}: {mm.group(3).strip()}")
     if len(img) > APP_SLOT:
