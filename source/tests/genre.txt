@@ -1,0 +1,27 @@
+# Wonderblue-OS: the GENRE page, a song written by it, then playing it (ids: see tests/host.c)
+300 shot g01-boot
+1700 btn 8
+1900 btn 3
+2000 btn 3
+2100 btn 3
+2300 shot g02-genre
+2400 enc 2 5
+2500 enc 3 1
+2700 shot g03-genre-hiphop
+2800 btn 1
+2900 shot g04-armed
+3000 btn 1
+3300 shot g05-made
+3400 btn 12
+7400 shot g06-playing
+7500 btn 11
+7700 shot g07-grid
+7800 btn 3
+7900 btn 3
+8000 btn 3
+8100 enc 2 30
+8200 btn 1
+8300 btn 1
+8400 btn 12
+12400 shot g08-hyperpop
+12500 end

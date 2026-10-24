@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* KAWA: a pocket tracker for the M-VAVE FM-1, for composing in any style (a tracker: time runs down the rows).
+/* Wonderblue-OS (WND-1): KAWA with a genre generator, for the M-VAVE FM-1. KAWA: a pocket tracker for the M-VAVE FM-1, for composing in any style (a tracker: time runs down the rows).
  *
  * Six tracks, each with its engine (pulse, 4-bit wave, noise, 6-operator FM on one track, a synthesised drum
  * kit, a sample cut in 16 slices or played as notes),
@@ -21,9 +21,9 @@
  *   kawa_ui.c     the pages, the panel, app_main
  *   kawa_sysex.c  the user's samples over USB-MIDI (SysEx)
  * Rules of the chip (docs/RULES.md): integers only, no 64-bit division, the audio interrupt short. */
-#define APP_NAME "KAWA"
+#define APP_NAME "WONDERBLUE"
 #ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_950"                   /* KAWA's identity, also outside build.py (it passes FM-1_95N / 96N) */
+#define FELUCCA_ID "FM-1_920"                   /* Wonderblue-OS's identity, also outside build.py (it passes FM-1_92N) */
 #endif
 #if !defined(DINGHY_HOST) && !defined(KAWA_WASM)  /* (the host builds keep the store in memory) */
 #ifndef STORE_LO
@@ -45,6 +45,7 @@
 #include "kawa_fx.c"
 #include "kawa_seq.c"
 #include "kawa_edit.c"
+#include "wnd_genre.c"
 #include "kawa_gfx.c"
 #include "kawa_ui.c"
 #include "kawa_sysex.c"

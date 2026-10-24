@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Wonderblue-OS: build the installable package (.fwsc) with JieLi's toolchain, the browser emulator, and run the
+# simulator over the GENRE page. The package and the emulator are attached to the run as a download ("wnd-1").
+name: build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install Pillow fonttools
+      - name: simulator (the GENRE page, a song, playing it)
+        working-directory: source
+        run: sh tests/run_host.sh tests/genre.txt
+      - name: emulator
+        working-directory: source
+        run: APP_VER=0.1 sh web/make_emulator.sh
+      - name: JieLi toolchain and SDK files (cached)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.jieli
+            ~/fw-AC79_AIoT_SDK/cpu/wl82/tools
+          key: jieli-ac79-v1.2.1
+      - name: JieLi toolchain and SDK files
+        run: |
+          # gitee and JieLi's server reset connections now and then: retries with backoff; the cache keeps them
+          retry() { for d in 0 5 15 30 60; do sleep $d; "$@" && return 0; done; return 1; }
+          T=$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools
+          [ -e "$HOME/.jieli/toolchain" ] || retry sh source/tools/get_toolchain.sh "$HOME/.jieli"
+          if [ ! -s "$T/uboot.boot" ] || [ ! -s "$T/cfg_tool.bin" ] || [ ! -s "$T/cfg/eq_cfg_hw.bin" ]; then
+            rm -rf "$HOME/fw-AC79_AIoT_SDK"
+            # the tested release, AC79NN_SDK_V1.2.1 (tools/build.py checks the three files' SHA-256)
+            retry git clone --filter=blob:none --no-checkout https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK"
+            cd "$HOME/fw-AC79_AIoT_SDK" && git sparse-checkout set --no-cone /cpu/wl82/tools/uboot.boot /cpu/wl82/tools/cfg_tool.bin \
+              /cpu/wl82/tools/cfg/eq_cfg_hw.bin && retry git checkout d179b4484759423312073f5fbb232501aa491047
+          fi
+      - name: firmware package
+        working-directory: source
+        run: ./build.sh --release 0.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wnd-1
+          path: |
+            source/build/wnd-1-0.1.fwsc
+            emulator/index.html
+          if-no-files-found: error

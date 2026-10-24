@@ -18,11 +18,11 @@
 
 static const char *const PAGE_NAMES[LANG_N][PG_N] = {
     {"PISTES", "GRILLE", "SON", "ENVELOPPE", "MIX", "MAGIE", "GAMME", "CHAINE", "PROJETS", "OPTIONS", "EFFETS", "AIDE", "",
-     "GROOVE", "ENVOIS"},
+     "GROOVE", "ENVOIS", "GENRE"},
     {"TRACKS", "GRID", "SOUND", "ENVELOPE", "MIX", "MAGIC", "SCALE", "SONG", "PROJECTS", "OPTIONS", "EFFECTS", "HELP", "",
-     "GROOVE", "SENDS"},
+     "GROOVE", "SENDS", "GENRE"},
     {"PISTAS", "REJILLA", "SONIDO", "ENVOLVENTE", "MEZCLA", "MAGIA", "ESCALA", "CANCION", "PROYECTOS", "OPCIONES", "EFECTOS",
-     "AYUDA", "", "GROOVE", "ENVIOS"}};
+     "AYUDA", "", "GROOVE", "ENVIOS", "GENERO"}};
 #define PAGE_NAME PAGE_NAMES[lang]
 static uint8_t page = PG_BOOT, page_back = PG_TRACK, help_pg = PG_TRACK;
 static uint8_t cur_row, cur_trk, ui_pat, rec, snd_page, grid_page, fx_bank, fx_sticky, mg_scope, follow = 1, fm_op = 1;
@@ -1986,29 +1986,108 @@ static void g_text_sh(int32_t x, int32_t y, const char *s, uint16_t c, uint32_t 
     g_text(x + 1, y + 1, s, RGB(8, 6, 20), mode);
     g_text(x, y, s, c, mode);
 }
+/* ---- GENRE (Wonderblue-OS): the genre, its blurb and tempo, the progression, what OCT+ will do */
+static uint32_t gn_semi(uint32_t sc, int32_t deg)   /* the semitones of a scale degree over the root */
+{
+    uint32_t mask = SCALES[sc % 12u].mask, n = 0, oct = 0;
+    int32_t k = -1;
+    while (deg < 0) { deg += 7; oct--; }
+    for (;;) {
+        if (mask >> (n % 12u) & 1u) { if (++k == deg) break; }
+        n++;
+        if (n > 96u) break;
+    }
+    return n + oct * 12u;
+}
+static void gn_roman(char *s, uint32_t sc, int32_t deg)   /* "vi", "IV", "vii°" */
+{
+    static const char *const R[7] = {"I", "II", "III", "IV", "V", "VI", "VII"};
+    const char *r = R[((deg % 7) + 7) % 7];
+    uint32_t root = gn_semi(sc, deg), third = gn_semi(sc, deg + 2) - root, fifth = gn_semi(sc, deg + 4) - root, i = 0;
+    while (*r) { s[i++] = (char)(third == 3u ? *r + ('a' - 'A') : *r); r++; }
+    if (third == 3u && fifth == 6u) s[i++] = '*';
+    s[i] = 0;
+}
+static void draw_genre(void)
+{
+    const genre_t *g = &GENRES[gn_genre % NGENRE];
+    const gprog_t *pr = &GPROGS[gn_prog % NGPROG];
+    uint16_t pc = PAGE_COL[PG_GENRE];
+    uint32_t i, sc = pr->scale ? pr->scale : g->scale;
+    char s[48], n[8];
+    if (!g_vis(20, 204)) return;
+    g_rect(0, 20, 240, 204, C_BG);
+    s[0] = 0;
+    str_cat(fmt_u(str_cat(s, "GENRE "), gn_genre + 1u, 2), "/");
+    fmt_u(str_cat(s, ""), NGENRE, 0);
+    g_text(8, 26, s, C_FAINT, T_CROP);
+    g_rect(0, 42, 240, 2, pc);
+    g_text(8, 50, g->name, C_GOLD, T_BOLD | T_CROP);
+    g_text(8, 70, g->blurb, C_MID, T_CROP);
+    s[0] = 0;
+    fmt_u(s, g->bpm_lo, 0);
+    str_cat(s, "-");
+    fmt_u(str_cat(s, ""), g->bpm_hi, 0);
+    str_cat(str_cat(s, " BPM  "), SCALES[sc % 12u].name[lang]);
+    g_text(8, 88, s, C_TXT, T_CROP);
+    g_rect(8, 110, 224, 1, C_RULE);
+    g_text(8, 118, pr->name, pc, T_BOLD | T_CROP);
+    s[0] = 0;
+    for (i = 0; i < 4u; i++) {
+        int32_t d = pr->scale ? pr->deg[i] : g->prog[i];
+        if (d < 0) break;
+        gn_roman(n, sc, d);
+        if (i) str_cat(s, "  ");
+        str_cat(s, n);
+    }
+    g_text(8, 136, s, C_TXT, T_CROP);
+    if (gn_armed && fm1_ms - gn_armed_ms < 3000u) {
+        g_rrect(6, 162, 228, 22, C_REC);
+        g_text_c(120, 165, TR("OCT+ ENCORE: NOUVEAU MORCEAU", "OCT+ AGAIN: A NEW SONG", "OCT+ OTRA VEZ: CANCION NUEVA"), C_WHITE, T_BOLD | T_CROP);
+    } else {
+        g_text(8, 160, TR("OCT+ DEUX FOIS: LE MORCEAU", "OCT+ TWICE: WRITE THE SONG", "OCT+ DOS VECES: LA CANCION"), C_GO, T_CROP);
+        g_text(8, 176, TR("REMPLACE LES MOTIFS 1-8", "REPLACES PATTERNS 1-8", "REEMPLAZA PATRONES 1-8"), C_FAINT, T_CROP);
+    }
+    fmt_u(n, gn_energy, 0);
+    hint(0, TR("GENRE", "GENRE", "GENERO"), TR("GEN", "GEN", "GEN"), g->name);
+    hint(1, TR("ACCORDS", "CHORDS", "ACORDES"), TR("ACC", "CHD", "ACO"), pr->name);
+    hint(2, TR("ENERGIE", "ENERGY", "ENERGIA"), TR("NRG", "NRG", "ENE"), n);
+    hint_none(3);
+}
+static void genre_oct(int32_t d)
+{
+    if (d < 0) { gn_armed = 0; toast(TR("GARDE", "KEPT", "CONSERVADO")); return; }
+    if (gn_armed && fm1_ms - gn_armed_ms < 3000u) {
+        gn_armed = 0;
+        gn_make();
+        ui_pat = 0;
+        cur_row = 0;
+        song_cur = 0;
+        follow = 1;
+        toast(prj.name);
+        return;
+    }
+    gn_armed = 1;
+    gn_armed_ms = fm1_ms;
+}
+
 static void draw_boot(void)
 {
     uint32_t t = fm1_ms - boot_ms, i;
-    g_pic(0, 0, BOOT_IMG, 240, 240, BOOT_PAL);
-    for (i = 0; i < BOOT_NSTAR; i++) {          /* the stars twinkle, each in its turn */
-        uint32_t ph = (t / 70u + i * 5u) % 14u;
-        int32_t sx = BOOT_STAR[i][0], sy = BOOT_STAR[i][1];
-        if (ph < 4u) {
-            uint16_t c = ph == 1u || ph == 2u ? C_WHITE : RGB(170, 190, 255);
-            g_rect(sx - 1, sy, 3, 1, c);
-            g_rect(sx, sy - 1, 1, 3, c);
-            if (ph == 2u) { g_px(sx - 2, sy, c); g_px(sx + 2, sy, c); g_px(sx, sy - 2, c); g_px(sx, sy + 2, c); }
-        }
+    static const uint16_t COL[6] = {RGB(240, 160, 48), RGB(214, 128, 52), RGB(236, 186, 96), RGB(96, 146, 255),
+                                    RGB(60, 201, 182), RGB(130, 176, 255)};
+    g_rect(0, 0, 240, 240, RGB(18, 18, 18));
+    for (i = 0; i < 24u; i++) {                 /* six tracker columns, four rows each, lighting up in turn */
+        uint32_t c = i % 6u, r = i / 6u, on = ((t / 120u) + c * 3u + r) % 9u < 3u;
+        int32_t x = 12 + (int32_t)c * 37, y = 104 + (int32_t)r * 22;
+        g_rect(x, y, 32, 16, on ? COL[c] : g_mix(RGB(30, 30, 30), COL[c], 40));
     }
-    for (i = 0; i < 4u; i++) {                  /* notes rise out of the cup, up into the sky */
-        uint32_t ph = (t + i * 350u) % 1400u;
-        int32_t nx = 34 - (int32_t)(ph / 60u) + (int32_t)((ph / 120u) % 3u), ny = 104 - (int32_t)(ph / 15u);
-        if (ny > 4) g_icon(nx < 0 ? 0 : nx, ny, ICO_NOTE, TRK_COL[(i * 3u) % NTRK], 2);
-    }
-    g_text_l(233 - 64 + 1, 9, "KAWA", RGB(8, 6, 20));
-    g_text_l(233 - 64, 8, "KAWA", C_WHITE);
-    g_text_sh(233 - g_text_w("Pocket Tracker"), 44, "Pocket Tracker", C_GOLD, T_BOLD);
-    g_text_sh(233 - g_text_w("by Omnipotard"), 60, "by Omnipotard", C_TXT, 0);
+    g_rect(0, 104 + (int32_t)(((t / 120u) % 4u) * 22u) - 3, 240, 1, RGB(240, 160, 48));
+    g_rect(0, 0, 240, 82, RGB(14, 14, 14));
+    g_rect(0, 0, 240, 3, RGB(60, 120, 255));
+    g_text_sh(233 - g_text_w("WONDERBLUE-OS"), 10, "WONDERBLUE-OS", RGB(96, 146, 255), T_BOLD);
+    g_text_sh(233 - g_text_w("WND-1 Genre Tracker"), 30, "WND-1 Genre Tracker", C_GOLD, T_BOLD);
+    g_text_sh(233 - g_text_w("on KAWA by Omnipotard"), 50, "on KAWA by Omnipotard", C_TXT, 0);
     g_rrect(4, 224, 44, 14, C_REC);
     g_text(8, 224, "BETA", C_WHITE, T_CROP | T_BOLD);
     g_text_sh(236 - g_text_w("V" APP_VER), 226, "V" APP_VER, C_TXT, T_CROP);
@@ -2037,6 +2116,7 @@ static void draw_all(void)
     case PG_FX: draw_fx(); break;
     case PG_SEND: draw_send(); break;
     case PG_HELP: draw_help(); break;
+    case PG_GENRE: draw_genre(); break;
     }
     draw_first();
     draw_tools();
@@ -2418,6 +2498,12 @@ static void knob(uint32_t i, int32_t d)
             param_turn(t, K[i], d);
         }
         break;
+    case PG_GENRE:
+        if (i == 0u) gn_genre = (uint8_t)clampi((int32_t)gn_genre + d, 0, (int32_t)NGENRE - 1);
+        else if (i == 1u) gn_prog = (uint8_t)clampi((int32_t)gn_prog + d, 0, (int32_t)NGPROG - 1);
+        else if (i == 2u) gn_energy = (uint8_t)clampi((int32_t)gn_energy + d, 0, 15);
+        gn_armed = 0;
+        break;
     case PG_MAGIC:
         if (i == 0u) mg_inten = (uint8_t)clampi(mg_inten + d, 0, 15);
         else if (i == 1u) mg_seed = (uint8_t)clampi(mg_seed + d, 0, 99);
@@ -2688,7 +2774,7 @@ static void page_button(uint32_t p)             /* a page's button: open it, or 
     case PG_ENV: set_page(page == PG_ENV ? PG_MIX : PG_ENV); break;
     case PG_GRID: set_page(page == PG_GRID ? PG_TRACK : PG_GRID); break;
     case PG_MAGIC: set_page(page == PG_MAGIC ? PG_TRACK : PG_MAGIC); break;
-    case PG_SCALE: set_page(page == PG_SCALE ? PG_MAGIC : page == PG_MAGIC ? PG_TRACK : PG_SCALE); break;   /* SCL: SCALE, MAGIC */
+    case PG_SCALE: set_page(page == PG_SCALE ? PG_MAGIC : page == PG_MAGIC ? PG_GENRE : page == PG_GENRE ? PG_TRACK : PG_SCALE); break;   /* SCL: SCALE, MAGIC, GENRE */
     case PG_SONG: set_page(page == PG_SONG ? PG_GROOVE : page == PG_GROOVE ? PG_OPT : PG_SONG); break;
     default: set_page(p); break;
     }
@@ -2769,6 +2855,7 @@ static void button_down(uint32_t b)
         } else if (page == PG_FX) { fx_bank = d > 0; lfx_keys = 0; }
         else if (page == PG_GRID) steps_turn(d);
         else if (page == PG_PROJ) { if (d > 0) pm_ok(); else pm_back(); }
+        else if (page == PG_GENRE) genre_oct(d);
         else if (page == PG_SONG) {
             follow = 0;
             if (d > 0) {                        /* a copy of the entry after it (or the pattern on screen) */
@@ -3150,7 +3237,7 @@ static void ui_leds(void)
 {
     uint32_t i, k, t = trk();
     static const uint8_t PAGE_BTN[PG_N] = {BTN_HOME, BTN_SEQ, BTN_EDIT, BTN_ENV, BTN_ENV, BTN_SEL, BTN_SEL, BTN_GLO,
-                                           BTN_SAVE, BTN_GLO, BTN_FX, BTN_HOME, 255, BTN_GLO, BTN_FX};   /* (GROOVE, OPTIONS: GLO) */
+                                           BTN_SAVE, BTN_GLO, BTN_FX, BTN_HOME, 255, BTN_GLO, BTN_FX, BTN_SEL};   /* (GROOVE, OPTIONS: GLO) */
     for (i = 0; i < 41u; i++) led_want[i] = 0;
     for (i = 2; i < 12u; i++) led_want[i] = 1;   /* the page buttons glow, the one open is lit */
     if (page < PG_N && PAGE_BTN[page] < 14u) led(page == PG_SOUND && sg_lfo(t, snd_page) ? BTN_LFO : PAGE_BTN[page], 2);

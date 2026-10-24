@@ -25,7 +25,10 @@ typedef struct {
     uint16_t bg, bg2, beat, rule, faint, mid, txt, gold, rec, go, ink;   /* ink: text on a lit tile */
     uint16_t trk[NTRK];
 } theme_t;
-static const theme_t THEMES[3] = {
+static const theme_t THEMES[4] = {
+    {"WONDERBLUE", RGB(22, 22, 22), RGB(32, 32, 32), RGB(46, 40, 32), RGB(62, 58, 52), RGB(128, 122, 114), RGB(180, 174, 164),
+     RGB(238, 232, 222), RGB(240, 160, 48), RGB(229, 72, 58), RGB(60, 201, 182), RGB(22, 18, 12),
+     {RGB(240, 160, 48), RGB(214, 128, 52), RGB(236, 186, 96), RGB(96, 146, 255), RGB(60, 201, 182), RGB(130, 176, 255)}},
     {"KAWA", RGB(18, 12, 36), RGB(26, 18, 50), RGB(38, 28, 72), RGB(56, 44, 98), RGB(118, 106, 170), RGB(176, 166, 224),
      RGB(240, 236, 255), RGB(255, 222, 110), RGB(255, 64, 96), RGB(96, 255, 150), RGB(18, 12, 36),
      {RGB(255, 95, 180), RGB(255, 176, 58), RGB(62, 216, 255), RGB(232, 240, 96), RGB(98, 242, 154), RGB(169, 139, 255)}},
@@ -36,7 +39,7 @@ static const theme_t THEMES[3] = {
      RGB(100, 72, 112), RGB(50, 28, 62), RGB(200, 106, 10), RGB(226, 30, 84), RGB(20, 150, 80), RGB(255, 255, 255),
      {RGB(230, 50, 140), RGB(226, 120, 10), RGB(10, 140, 200), RGB(120, 150, 10), RGB(20, 160, 100), RGB(130, 70, 220)}},
 };
-#define NTHEME 3u
+#define NTHEME 4u
 static uint8_t theme;
 static uint16_t C_BG, C_BG2, C_BEAT, C_RULE, C_FAINT, C_MID, C_TXT, C_GOLD, C_REC, C_GO, C_INK;
 static uint16_t TRK_COL[NTRK];
@@ -54,11 +57,11 @@ static void theme_set(uint32_t k)
 static const uint16_t KNOB_COL[4] = {RGB(255, 92, 92), RGB(255, 204, 64), RGB(92, 226, 116), RGB(84, 164, 255)};
 /* one page, one colour (the page's pill, the emulator's buttons) */
 enum { PG_TRACK, PG_GRID, PG_SOUND, PG_ENV, PG_MIX, PG_MAGIC, PG_SCALE, PG_SONG, PG_PROJ, PG_OPT, PG_FX, PG_HELP, PG_BOOT,
-       PG_GROOVE, PG_SEND, PG_N };                       /* (GROOVE last: the emulator knows the others by their number) */
+       PG_GROOVE, PG_SEND, PG_GENRE, PG_N };                       /* (GROOVE last: the emulator knows the others by their number) */
 static const uint16_t PAGE_COL[PG_N] = {RGB(169, 139, 255), RGB(255, 96, 146), RGB(62, 216, 255), RGB(98, 242, 154),
                                         RGB(255, 160, 60), RGB(255, 210, 90), RGB(200, 240, 90), RGB(255, 160, 60),
                                         RGB(100, 150, 255), RGB(255, 160, 60), RGB(255, 120, 200), RGB(169, 139, 255),
-                                        RGB(169, 139, 255), RGB(255, 160, 60), RGB(255, 120, 200)};
+                                        RGB(169, 139, 255), RGB(255, 160, 60), RGB(255, 120, 200), RGB(60, 201, 182)};
 
 /* ---- the 24 parameters of a track: SOUND 1, SOUND 2 (the engine's), ENVELOPE, MIX, EFFECT, LFO */
 #define NPARAM 28u

@@ -65,7 +65,7 @@ SDK_SHA256 = {
 #                  never share one. X.Y.Z and X.Y-suffix keep X.Y's (the full version is in the text).
 # Taken by others: Felucca 900 and 9XY for its X.Y (v1.5.1: 915), Dinghy 99N. A major 2 (97N) is refused:
 # it needs a new scheme first.
-PRODUCT = "FM-1_950"
+PRODUCT = "FM-1_920"
 VERSION = None                      # APP_VER for release builds
 
 
@@ -385,17 +385,17 @@ def main():
                     "version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
-    name = "kawa.fwsc"
+    name = "wnd-1.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
         m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
-        if int(m[1]) > 1:
-            raise SystemExit(f"--release {a.release}: KAWA's identities cover majors 0 (FM-1_95Y) and 1 (FM-1_96Y); "
-                             "a major 2 needs a new scheme first (tools/build.py, PRODUCT)")
-        PRODUCT = f"FM-1_9{5 + int(m[1])}{m[2]}"
+        if int(m[1]) > 0:
+            raise SystemExit(f"--release {a.release}: Wonderblue-OS's identities cover major 0 (FM-1_92Y); "
+                             "a major 1 needs a new scheme first (tools/build.py, PRODUCT)")
+        PRODUCT = f"FM-1_92{m[2]}"
         VERSION = m[1] + "." + m[2] + (m[3] or "")
-        name = f"kawa-{a.release}.fwsc"
+        name = f"wnd-1-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK, or with another one
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
