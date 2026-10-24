@@ -86,15 +86,16 @@ static void start_kick(voice_t *v, const int16_t *p, int32_t tune)
     v->e3 = 32767;                              /* the sub's level */
     v->e4 = (int32_t)(22937 * p[PK_PUNCH] / 100);   /* the click */
 }
-static void start_snare(voice_t *v, const int16_t *p, int32_t tune)
+static void start_snare(voice_t *v, const int16_t *p, int32_t tune, int clap)   /* clap: the clap alone */
 {
     uint32_t k = semi_q16(p[PS_TUNE] + tune);
     v->kind = K_SNARE;
+    v->open = (uint8_t)clap;
     v->inc[0] = mulq16(hz_inc(185), k);
     v->inc[1] = mulq16(hz_inc(330), k);
     v->q[0] = (int16_t)clampi(p[PS_DECAY], 40, 800);
     v->q[1] = p[PS_SNAP];
-    v->q[2] = p[PS_CLAP];
+    v->q[2] = (int16_t)(clap ? 100 : p[PS_CLAP]);
     v->f1 = svf_f(1200 + p[PS_TONE] * 50);
     v->e2 = 19661;                              /* the bodies' pitch over the note (x1.6), Q15 -> decays to 0 */
     v->e3 = 32767;
@@ -104,9 +105,9 @@ static void start_hat(voice_t *v, const int16_t *p, int32_t tune, int open)
     uint32_t k = semi_q16(p[PH_TUNE] + tune);
     v->kind = K_HAT;
     v->open = (uint8_t)open;
-    v->inc[0] = mulq16(hz_inc(96), k);
-    v->inc[1] = mulq16(hz_inc(165), k);
-    v->inc[2] = mulq16(hz_inc(278), k);
+    v->inc[0] = mulq16(hz_inc(3170), k);        /* the metal: two rung against each other, and a third */
+    v->inc[1] = mulq16(hz_inc(4950), k);
+    v->inc[2] = mulq16(hz_inc(7230), k);
     v->q[0] = (int16_t)(open ? clampi(p[PH_DECAY] * 5, 250, 900) : clampi(p[PH_DECAY], 15, 400));
     v->q[1] = p[PH_METAL];
     v->f1 = svf_f(clampi((5000 + p[PH_TONE] * 40) * (int32_t)(k >> 6) / 1024, 3000, 5600));
@@ -250,6 +251,21 @@ static void voice_ctl(voice_t *v)
     v->env_s = (ne - e) / (int32_t)CH;
 }
 static uint32_t lfo_ph;                         /* vibrato: one 5.6 Hz LFO for every voice */
+static int32_t blep(uint32_t t, uint32_t dt)    /* PolyBLEP: what smooths a step at phase 0 (Q15; 32-bit division only) */
+{
+    uint32_t d = (dt >> 16) | 1u, x;
+    if (t < dt) {
+        x = ((t >> 16) << 15) / d;
+        if (x > 32768u) x = 32768u;
+        return -(int32_t)(((32768u - x) * (32768u - x)) >> 15);
+    }
+    if (t > 0u - dt) {
+        x = (((0u - t) >> 16) << 15) / d;
+        if (x > 32768u) x = 32768u;
+        return (int32_t)(((32768u - x) * (32768u - x)) >> 15);
+    }
+    return 0;
+}
 static int32_t voice_render(voice_t *v)         /* one sample, Q15 */
 {
     int32_t s = 0, a;
@@ -278,14 +294,14 @@ static int32_t voice_render(voice_t *v)         /* one sample, Q15 */
         t1 = (int32_t)(v->ph[0] >> 16); t1 = (t1 < 32768 ? t1 : 65535 - t1) * 2 - 32767;
         t2 = (int32_t)(v->ph[1] >> 16); t2 = (t2 < 32768 ? t2 : 65535 - t2) * 2 - 32767;
         body = (((t1 * 14745 + t2 * 8192) >> 15) * (36045 - v->q[1] * 164)) >> 15;
-        body = (body * v->e3) >> 15;
+        body = v->open ? 0 : (body * v->e3) >> 15;
         x = noise() >> 1;                       /* the noise through a band-pass, then a high-pass */
         v->s1 += (v->f1 * v->s2) >> 15;
         hp = x - v->s1 - v->s2;
         v->s2 += (v->f1 * hp) >> 15;
         v->s3 += (v->s2 - v->s3) >> 3;
         tail = ((v->s2 - v->s3) * a) >> 15;
-        tail = (tail * (40 + v->q[1] * 60 / 100)) / 64;
+        tail = (tail * (40 + v->q[1] * 60 / 100)) / (v->open ? 160 : 64);
         s = body + tail;
         if (v->q[2]) {                          /* the clap: bursts at 0, 9, 19 ms, then its tail */
             uint32_t g = v->age;
@@ -303,9 +319,10 @@ static int32_t voice_render(voice_t *v)         /* one sample, Q15 */
     }
     case K_HAT: {
         int32_t m = 0, x;
-        if (v->q[1] > 5) {
-            for (i = 0; i < 3u; i++) { v->ph[i] += v->inc[i]; m += v->ph[i] < 0x80000000u ? 32767 : -32767; }
-            m = (m / 3 * v->q[1] * 18) / 100;
+        if (v->q[1] > 5) {                      /* sines rung together: metal without the squares' grit */
+            for (i = 0; i < 3u; i++) v->ph[i] += v->inc[i];
+            m = ((sine(v->ph[0]) * sine(v->ph[1])) >> 15) + (sine(v->ph[2]) >> 1);
+            m = (m * v->q[1] * 12) / 100;
         }
         x = ((noise() * (100 - v->q[1] * 6 / 10)) / 100) + m;
         v->s1 += (v->f1 * (x - v->s1)) >> 15;   /* a one-pole low-pass: what is left is the high-pass */
@@ -345,11 +362,11 @@ static int32_t voice_render(voice_t *v)         /* one sample, Q15 */
             uint32_t inc = v->inc[i], ph;
             if (v->e3 || vib) inc = mulq16(mulq16(inc, gm), cents_q16(vib));
             ph = v->ph[i] += inc;
-            switch (v->q[PY_WAVE]) {
-            case 1: x += ph < 0x80000000u ? 26000 : -26000; break;
+            switch (v->q[PY_WAVE]) {            /* the saw and the square band-limited (PolyBLEP): no fizz */
+            case 1: x += (ph < 0x80000000u ? 26000 : -26000) + ((blep(ph, inc) - blep(ph + 0x80000000u, inc)) * 26000 >> 15); break;
             case 2: { int32_t t = (int32_t)(ph >> 16); x += (t < 32768 ? t : 65535 - t) * 2 - 32767; break; }
             case 3: x += sine(ph); break;
-            default: x += (int32_t)(ph >> 16) - 32768; break;
+            default: x += (int32_t)(ph >> 16) - 32768 - blep(ph, inc); break;
             }
         }
         x = x / (int32_t)n;
@@ -426,17 +443,18 @@ static void trigger(uint32_t t, uint32_t n, int32_t vel, int32_t gate, int rev, 
         start_kick(v, p, (int32_t)n - 60);
         if (song.pump && !song.trk[t].mute) { int32_t d = 32768 - (int32_t)song.pump * (vel >> 7) * 3; if (d < duck) duck = d; }
         break;
-    case TY_SNARE:
-        v = voice_alloc(t);
-        voice_go(v, t, vel, -1);
-        start_snare(v, p, (int32_t)n - 60);
-        break;
-    case TY_HAT: {
-        uint32_t i;
-        if (n < 64u) for (i = 0; i < NV; i++) if (vo[i].kind == K_HAT && vo[i].trk == t && vo[i].open) vo[i].q[0] = 20;   /* closed chokes open */
-        v = voice_alloc(t);
-        voice_go(v, t, vel, -1);
-        start_hat(v, p, n >= 64u ? (int32_t)n - 66 : (int32_t)n - 60, n >= 64u);
+    case TY_DRUMS: {                            /* the note says which drum: snare, clap, closed or open hat */
+        uint32_t i, kd = drm_kind(n);
+        if (kd == DK_HAT || kd == DK_OPEN) {
+            if (kd == DK_HAT) for (i = 0; i < NV; i++) if (vo[i].kind == K_HAT && vo[i].trk == t && vo[i].open) vo[i].q[0] = 20;   /* closed chokes open */
+            v = voice_alloc(t);
+            voice_go(v, t, (vel * 12000) >> 15, -1);   /* (the hats sit under the snare) */
+            start_hat(v, p, drm_tune(n), kd == DK_OPEN);
+        } else {
+            v = voice_alloc(t);
+            voice_go(v, t, vel, -1);
+            start_snare(v, p, drm_tune(n), kd == DK_CLAP);
+        }
         break;
     }
     default: {
@@ -483,12 +501,28 @@ static uint32_t gate_rows(const pat_t *p, uint32_t t, uint32_t r)
     for (k = r + 1u; k < L; k++) if (p->c[t][k].n) return k - r;
     return L - r;
 }
+/* the meter: sq_pos counts the steps played; a bar of 16 rows plays METER_STEPS of them (fewer: its end is left
+ * out; more: its last beat again) */
+static uint32_t meter_steps(void) { return METER_STEPS[(punch_meter ? punch_meter : song.meter) % NMETER]; }
+static uint32_t steps_of(uint32_t L)            /* the steps a pattern of L rows takes */
+{
+    uint32_t B = meter_steps(), rest = L % 16u;
+    return B == 16u ? L : (L / 16u) * B + (rest < B ? rest : B);
+}
+static uint32_t row_of(uint32_t pos)            /* the row a step plays */
+{
+    uint32_t B = meter_steps(), k;
+    if (B == 16u) return pos;
+    k = pos % B;
+    if (k >= 16u) k = 12u + (k - 16u) % 4u;
+    return (pos / B) * 16u + k;
+}
 static uint32_t play_row(uint32_t L)
 {
-    uint32_t r = sq_pos % L;
-    if (punch_rev) r = (uint32_t)((((int32_t)rev_at * 2 - (int32_t)sq_pos) % (int32_t)L + (int32_t)L) % (int32_t)L);
-    if (punch_loop) { uint32_t n = punch_loop; r = (loop_start + ((sq_pos - loop_start) % n)) % L; }
-    return r;
+    uint32_t n = steps_of(L), vp = sq_pos % n;
+    if (punch_rev) vp = (uint32_t)((((int32_t)rev_at * 2 - (int32_t)sq_pos) % (int32_t)n + (int32_t)n) % (int32_t)n);
+    if (punch_loop) vp = (loop_start + ((sq_pos - loop_start) % punch_loop)) % n;
+    return row_of(vp) % L;
 }
 static void row_fire(void)
 {
@@ -564,7 +598,7 @@ static void seq_chunk(void)
         uint32_t L = p->len ? p->len : 16u;
         sq_frame -= sq_rowlen;
         sq_rowlen = row_frames();
-        if (++sq_pos >= L) {                    /* the end of the pattern: the next one */
+        if (++sq_pos >= steps_of(L)) {          /* the end of the pattern: the next one */
             sq_pos = 0;
             sq_end_pi = sq_pi;
             if (sq_cue < NPAT) { sq_pi = sq_cue; sq_cue = 0xFF; }
@@ -580,16 +614,16 @@ static void seq_chunk(void)
 #define TAPE_N 512u
 static int16_t dly_buf[DLY_N] POOL;
 static uint32_t dly_w;
-static int32_t dly_lp, dly_out;
+static int32_t dly_lp, dly_out, dly_o0, sd_prev, sr_prev;
 static int16_t cmb[4][700] POOL, apb[2][360];
 static const uint16_t CMB_LEN[4] = {557, 593, 641, 677}, AP_LEN[2] = {225, 341};
 static uint16_t cmb_i[4], ap_i[2];
-static int32_t cmb_lp[4], rev_l, rev_r;
+static int32_t cmb_lp[4], rev_l, rev_r, rev_l0, rev_r0;
 static int16_t tape[2][TAPE_N];
 static uint32_t tape_w, wow_ph, flut_ph;
 static int32_t tone_l, tone_r, lpf_l1, lpf_l2, lpf_r1, lpf_r2, lpf_f = 24000, lim_g = 32768, dbus_env, dbus_g = 32768;
 static int32_t trk_lp[NT], trk_g[NT], trk_gt[NT];
-static const uint8_t TRK_MULT[NT] = {60, 40, 90, 70, 160, 180, 200};   /* the mix's balance (%): the kick at half, the synths up */
+static const uint8_t TRK_MULT[NT] = {50, 40, 70, 160, 180, 200};   /* the mix's balance (%): the kick at half, the synths up */
 static uint32_t half;
 static void app_audio(int32_t *out, uint32_t n)
 {
@@ -602,7 +636,7 @@ static void app_audio(int32_t *out, uint32_t n)
         evq_r++;
     }
     for (i = 0; i < n; i += CH) {
-        int32_t rev_fb = 22938 + song.space * 82, dly_fb = punch_dub ? 26214 : 13763;
+        int32_t rev_fb = 21000 + song.space * 70, dly_fb = punch_dub ? 26214 : 13763;
         uint32_t dly_len = (uint32_t)clampi((int32_t)(row_frames() * 3u / 2u), 1000, DLY_N - 1);
         seq_chunk();
         for (k = 0; k < NV; k++) if (vo[k].kind != K_FREE) voice_ctl(&vo[k]);
@@ -630,22 +664,29 @@ static void app_audio(int32_t *out, uint32_t n)
                 s = ((clampi(s, -98000, 98000) >> 2) * trk_g[t]) >> 13;
                 l = (s * (50 - pan)) / 50;
                 r = (s * (50 + pan)) / 50;
-                if (t < 4u) { dl += l; dr += r; } else { ml += l; mr += r; }
+                if (t < 3u) { dl += l; dr += r; } else { ml += l; mr += r; }
                 sr += (s * song.trk[t].rev) / 100;
                 sd += (s * song.trk[t].dly) / 100;
             }
             x = (dl < 0 ? -dl : dl) + (dr < 0 ? -dr : dr);   /* the drum bus: glued, rounded */
             dbus_env += x > dbus_env ? (x - dbus_env) >> 4 : (x - dbus_env) >> 11;
-            dl = sat((int32_t)(((int64_t)dl * dbus_g) >> 15) * 34 / 32);
-            dr = sat((int32_t)(((int64_t)dr * dbus_g) >> 15) * 34 / 32);
+            dl = sat((int32_t)(((int64_t)dl * dbus_g) >> 16)) * 2;   /* (twice the headroom before it rounds off) */
+            dr = sat((int32_t)(((int64_t)dr * dbus_g) >> 16)) * 2;
             ml = (ml * duck) >> 15;
             mr = (mr * duck) >> 15;
             L = dl + ml;
             R = dr + mr;
             if (punch_dub) sd += (L + R) / 3;
             if (punch_wash) sr += (L + R) * 4 / 10;
-            if (!(half++ & 1u)) {               /* the delay and the reverb at 22 kHz */
-                int32_t in = sd, dv, rin = sr >> 2, cl = 0, cr = 0, ap;
+            {
+            int even = !(half++ & 1u), sd2 = (sd + sd_prev) >> 1, sr2 = (sr + sr_prev) >> 1;
+            sd_prev = sd;
+            sr_prev = sr;
+            if (even) {                         /* the delay and the reverb at 22 kHz: what goes in averaged, what */
+                int32_t in = sd2, dv, rin = sr2 >> 2, cl = 0, cr = 0, ap;   /* comes out in between (no buzz) */
+                dly_o0 = dly_out;
+                rev_l0 = rev_l;
+                rev_r0 = rev_r;
                 uint32_t j;
                 dv = dly_buf[(dly_w + DLY_N - dly_len) % DLY_N];
                 dly_lp += (dv - dly_lp) >> 1;
@@ -669,8 +710,12 @@ static void app_audio(int32_t *out, uint32_t n)
                 rev_l = cl;
                 rev_r = (cr + cl) >> 1;
             }
-            L += dly_out + ((rev_l * song.space) / 60);
-            R += dly_out + ((rev_r * song.space) / 60);
+            {
+                int32_t dq = even ? (dly_o0 + dly_out) >> 1 : dly_out, rl = even ? (rev_l0 + rev_l) >> 1 : rev_l, rr = even ? (rev_r0 + rev_r) >> 1 : rev_r;
+                L += dq + ((rl * song.space) / 60);
+                R += dq + ((rr * song.space) / 60);
+            }
+            }
             if (song.age) {                     /* tape: wow and flutter, hiss and crackle, a darker top */
                 uint32_t d, f;
                 int32_t a0, a1;

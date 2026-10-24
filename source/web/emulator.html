@@ -815,23 +815,23 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     power: "The FM-1 firmware runs here as it is, compiled to WebAssembly. Turn the sound on and power up.",
     pages: ["SONGS (SNG)", "TRACKER (TRK)", "SOUND (SND)", "CHORDS (CHD)", "GENERATE (GEN)", "MIX", "MASTER (MST)"],
     "k.select": "ROW", "k.presets": "SOUND / GENRE / PATTERN", "k.algo": "TRACK",
-    "b.oct": "PAD OCTAVE", "b.fx": "HOLD: PUNCH-INS", "b.scl": "CHD", "b.env": "MIX", "b.lfo": "GEN", "b.edit": "SND", "b.glo": "MST",
-    "b.home": "TRK", "b.home.alt": "+ PLAY: SIT", "b.save": "SNG", "b.save.alt": "SONGS", "b.arp": "HOLD: REPEAT", "b.seq": "HOLD: PATTERN", "b.play": "PLAY", "b.rec": "REC",
+    "b.oct": "PAD OCTAVE", "b.fx": "PERFORM", "b.scl": "CHD", "b.env": "MIX", "b.lfo": "GEN", "b.edit": "SND", "b.glo": "MST",
+    "b.home": "TRK", "b.home.alt": "+ PLAY: SIT", "b.save": "SNG", "b.save.alt": "SONGS", "b.arp": "REPEAT", "b.seq": "ARRANGE", "b.play": "PLAY", "b.rec": "REC",
     "tt.SELECT": "SELECT moves the cursor's row (on SNG: the slot, on CHD: the chord slot).",
     "tt.PRESETS": "PRESETS: on SND the track's sound, on SNG the genre, on CHD the progression, elsewhere the pattern A-H (cued while it plays).",
-    "tt.ALGORITHM": "ALGORITHM picks the track: BRK KIK SNR HAT BAS KEY SYN (the black keys 1-7 do too).",
+    "tt.ALGORITHM": "ALGORITHM picks the track: BRK KIK DRM BAS KEY SYN (the black keys 1-6 do too).",
     "tt.0": "OCT- lowers the pads an octave (BAS KEY SYN). On SNG it cancels.",
     "tt.1": "OCT+ raises the pads an octave (BAS KEY SYN). On SNG it confirms the F button waiting (SURE?).",
-    "tt.2": "FX held + a white key: a punch-in while you hold it. 1 ROLL 1/4, 2 ROLL 1/8, 3 ROLL 16, 4 ROLL 32, 5 REVERSE, 6 HALF, 7 SCATTER, 8 DUB, 9 WASH, 10 LPF.",
+    "tt.2": "FX opens PERFORM while you hold it; hold it, let go and press it again quickly and it stays (FX closes it). White keys: punch-ins (rolls, reverse, half, scatter, dub, wash, filter, 3/4, 7/8, 5/4). Black keys 1-6: mute the tracks (F1: solo instead), F3 SIT, F4 all on.",
     "tt.3": "SCL opens CHD: the chord progression. White 1-7 set a chord (I-VII), 8 deletes the last, 9-16 pick the slot. Knobs: PROG, CHORD LEN, VOICING, KEY.",
     "tt.4": "ENV opens MIX: VOL, PAN, VERB, DELAY of the track; F1 MUTE, F2 SOLO, F3 ALL ON, F4 CLR TRK.",
     "tt.5": "LFO opens GEN: CHANCE, MUTATE, DRIFT, DENSITY of the track; F1 FILL, F2 DICE, F3 RESTORE, F4 FILL ALL.",
     "tt.6": "EDIT opens SND: the track's sound. Press again (or F1) for its next knobs. PRESETS picks the factory sound.",
-    "tt.7": "GLO opens MST: BPM, SWING, AGE, CRUSH; again for KEY, SCALE, SPACE, VOLUME; again for PUMP. F2 TAP, F3 SIT.",
+    "tt.7": "GLO opens MST: BPM, SWING, AGE, CRUSH; again for KEY, SCALE, SPACE, VOLUME; again for PUMP and METER (4/4, 3/4, 6/8, 5/4, 7/8, 9/8). F2 TAP, F3 SIT.",
     "tt.8": "HOME opens TRK, the tracker: NOTE, VEL, FX, AMT of the cell. HOME + PLAY: SIT, the machine plays itself.",
     "tt.9": "SAVE opens SNG: KNOB 2 or PRESETS picks the genre, F2 NEW SONG (twice) writes patterns A-H. F1 SAVE, F3 LOAD, F4 DELETE in the slot (KNOB 1 / SELECT).",
-    "tt.10": "ARP held + a pad: note repeat on every row while it plays (with REC it writes).",
-    "tt.11": "SEQ held + white 1-8: pattern A-H (cued while it plays); + white 9: loop the pattern / play the chain.",
+    "tt.10": "ARP held + a pad: note repeat on every row while it plays. Hold ARP, let go and press it again quickly: it stays, and a pad starts or stops repeating.",
+    "tt.11": "SEQ (a tap) opens ARRANGE: the order the song plays its patterns, editable while it plays (white 1-8 place a pattern, F1 insert, F2 delete, F3 loop, F4 jump there). SEQ held + white 1-8: go to pattern A-H.",
     "tt.12": "PLAY starts or stops. HOME + PLAY: SIT.",
     "tt.13": "REC: the pads write notes at the cursor (on the nearest row while it plays).",
     "p.h": "Saved songs",
@@ -845,13 +845,13 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     g1: "Start here",
     g1l: "<li>Power on: a song is already written. <b>PLAY</b> plays it. <b>HOME + PLAY</b> is <b>SIT</b>: it plays by itself, moving between sections, dropping parts out and mutating them.</li>" +
          "<li><b>SAVE</b> opens <b>SNG</b>: turn <b>KNOB 2</b> (or PRESETS) to pick one of 49 genres, then press <b>F2 NEW SONG</b> twice (F1-F4 are the black keys 8-11, under the knobs on screen). Patterns A-H are written as song sections and chained.</li>" +
-         "<li>Seven tracks: <b>BRK</b> the break (16 slices), <b>KIK SNR HAT</b> synthesised drums, <b>BAS KEY SYN</b> synths (FM, analog or voice). <b>ALGORITHM</b> or the black keys 1-7 pick one, the 16 white keys play it.</li>" +
+         "<li>Six tracks: <b>BRK</b> the break (16 slices), <b>KIK</b> the kick, <b>DRM</b> snare, clap and hats (pads 1-4 snares, 5-6 claps, 7-12 hats, 13-16 open hats), <b>BAS KEY SYN</b> synths (FM, analog or voice). <b>ALGORITHM</b> or the black keys 1-6 pick one, the 16 white keys play it.</li>" +
          "<li>The four knobs do what is written above F1-F4 at the bottom of the screen, on every page.</li>",
     g2: "Pages",
     g2l: "<li><b>HOME</b> TRK: the tracker. SELECT the row; NOTE, VEL, FX (RETRIG, CHANCE, DELAY, REVERSE, PITCH), AMT. F1 CLR, F2 OFF, F3 LEN 16/32/64, F4 DUP. <b>REC</b>: the pads write.</li>" +
          "<li><b>SCL</b> CHD: the chords. PROG presets (incl. the four-chord song), CHORD LEN, VOICING, KEY; white 1-7 write your own; F1 WRITE new bass and keys on them, F2 NEW PROG, F3 UNDO, F4 HEAR.</li>" +
          "<li><b>EDIT</b> SND: the sound (press again for more knobs). <b>LFO</b> GEN: chance, mutation, drift, density; FILL, DICE, RESTORE. <b>ENV</b> MIX. <b>GLO</b> MST: tempo, swing, tape age, crush, key, scale, space, pump.</li>" +
-         "<li><b>FX</b> held + white keys: punch-ins (rolls, reverse, half, scatter, dub, wash, filter). <b>SEQ</b> held + white 1-8: patterns. <b>ARP</b> held + a pad: note repeat.</li>",
+         "<li><b>FX</b>: PERFORM, the punch-ins on the white keys and mute / solo on the black ones. Press FX twice quickly and it stays up, no finger needed. <b>SEQ</b> (a tap): ARRANGE, the song order, live. <b>ARP</b> + a pad: note repeat (twice: it stays).</li>",
     g3: "On the keyboard",
     g3l: "<li>Pads: the rows <kbd>Z X C V…</kbd> and <kbd>Q W E R…</kbd>.</li>" +
          "<li><kbd>Space</kbd> PLAY · <kbd>Enter</kbd> REC · <kbd>Shift</kbd> held FX · <kbd>Backspace</kbd> ARP · <kbd>Esc</kbd> HOME · <kbd>-</kbd> <kbd>=</kbd> OCT- OCT+.</li>" +

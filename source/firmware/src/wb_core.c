@@ -1,20 +1,28 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Wonderblue-OS: the song (seven tracks, eight patterns of up to 64 rows, a chain, a chord progression, the sounds and
+/* Wonderblue-OS: the song (six tracks, eight patterns of up to 64 rows, a chain, a chord progression, the sounds and
  * the master), the scale and chord maths, and what the audio interrupt and the main loop share.
  *
- * Tracks: BRK the break (16 slices), KIK, SNR, HAT (synthesised drums), BAS, KEY, SYN (synths: FM, analog or voice).
- * A cell: a note (slice + 1 on BRK, a MIDI note elsewhere, 255 OFF, 0 empty), a velocity 0..15 and an effect:
+ * Tracks: BRK the break (16 slices), KIK the kick, DRM snare, clap and hats, BAS, KEY, SYN (synths: FM, analog or voice).
+ * A cell: a note (slice + 1 on BRK, a MIDI note elsewhere, on DRM which drum and its tune (DN_*), 255 OFF, 0 empty), a velocity 0..15 and an effect:
  * R retrigger n times in the row, G chance (n + 1) / 16, D delay n / 16 of a row, B backwards, P pitch n - 8. */
-#define NT 7u
+#define NT 6u
 #define NPAT 8u
 #define NROW 64u
 #define CH 16u                                  /* control rate: envelopes, the sequencer, every 16 frames */
 #define NOTE_OFF 255u
-enum { T_BRK, T_KIK, T_SNR, T_HAT, T_BAS, T_KEY, T_SYN };
-enum { TY_BREAK, TY_KICK, TY_SNARE, TY_HAT, TY_SYNTH };
-static const uint8_t TRK_TYPE[NT] = {TY_BREAK, TY_KICK, TY_SNARE, TY_HAT, TY_SYNTH, TY_SYNTH, TY_SYNTH};
-static const char *const TRK_ID[NT] = {"BRK", "KIK", "SNR", "HAT", "BAS", "KEY", "SYN"};
-static const char *const TRK_FULL[NT] = {"BREAK", "KICK", "SNARE", "HATS", "BASS", "KEYS", "SYNTH 2"};
+enum { T_BRK, T_KIK, T_DRM, T_BAS, T_KEY, T_SYN };
+enum { TY_BREAK, TY_KICK, TY_DRUMS, TY_SYNTH };
+static const uint8_t TRK_TYPE[NT] = {TY_BREAK, TY_KICK, TY_DRUMS, TY_SYNTH, TY_SYNTH, TY_SYNTH};
+static const char *const TRK_ID[NT] = {"BRK", "KIK", "DRM", "BAS", "KEY", "SYN"};
+static const char *const TRK_FULL[NT] = {"BREAK", "KICK", "SNARE + HATS", "BASS", "KEYS", "SYNTH"};
+/* DRM: which drum a note plays, around its centre (the tune: the note minus the centre) */
+enum { DK_SNARE, DK_HAT, DK_OPEN, DK_CLAP };
+#define DN_SNR 60u                              /* 48..71 */
+#define DN_HAT 84u                              /* 72..95 */
+#define DN_OPEN 108u                            /* 96..119 */
+#define DN_CLAP 122u                            /* 120..127 */
+static uint32_t drm_kind(uint32_t n) { return n >= 120u ? DK_CLAP : n >= 96u ? DK_OPEN : n >= 72u ? DK_HAT : DK_SNARE; }
+static int32_t drm_tune(uint32_t n) { static const uint8_t C[4] = {DN_SNR, DN_HAT, DN_OPEN, DN_CLAP}; return (int32_t)n - C[drm_kind(n)]; }
 enum { FX_NONE, FX_R, FX_G, FX_D, FX_B, FX_P, FX_N };
 static const char FX_CH[FX_N] = {'.', 'R', 'G', 'D', 'B', 'P'};
 static const char *const FX_NAME[FX_N] = {"NONE", "RETRIG", "CHANCE", "DELAY", "REVERSE", "PITCH"};
@@ -29,18 +37,18 @@ typedef struct {
 /* a track's sound: what each index means depends on its type */
 enum { PB_SRC, PB_PITCH, PB_GATE, PB_TONE };                                   /* break: source, semitones, gate %, tone 0..100 */
 enum { PK_TUNE, PK_DECAY, PK_PUNCH, PK_DRIVE };                                /* kick */
-enum { PS_TUNE, PS_DECAY, PS_TONE, PS_SNAP, PS_CLAP };                         /* snare */
-enum { PH_TUNE, PH_DECAY, PH_TONE, PH_METAL };                                 /* hats */
+enum { PS_TUNE, PS_DECAY, PS_TONE, PS_SNAP, PS_CLAP };                         /* DRM: the snare */
+enum { PH_TUNE = 5, PH_DECAY, PH_TONE, PH_METAL };                             /* DRM: the hats */
 enum { PY_ENG, PY_RATIO, PY_INDEX, PY_ATT, PY_DEC, PY_SUS, PY_REL, PY_DET, PY_TINE, PY_WAVE, PY_UNI, PY_RESO, PY_FENV,
        PY_GLIDE, PY_VIB, PY_VOWEL, PY_CHORD, PY_OCT, PY_CTR, PY_CTRP, PY_CTRL, NP };   /* synths (the first 16: WB_SYN) */
 typedef struct {
     int16_t p[NP];
     uint8_t patch, vol, rev, dly;               /* patch 255: the genre's own */
     int8_t pan;
-    uint8_t mute, solo, chance, mutate, drift, density, pad;
+    uint8_t mute, solo, chance, mutate, drift, density, patch2;   /* patch2: DRM's hats */
 } track_t;
 #define SONG_MAGIC 0x45554C42u                  /* "BLUE" */
-#define SONG_VERSION 1u
+#define SONG_VERSION 2u                         /* 2: six tracks */
 enum { RL_BRK, RL_BAS, RL_KEY, RL_SYN, RL_BRK2, RL_BAS2, RL_KEY2, RL_SYN2, RL_K, RL_S, RL_H, RL_K2, RL_S2, RL_H2, RL_N };
 typedef struct {
     uint32_t magic, version;
@@ -49,7 +57,7 @@ typedef struct {
     uint8_t chain[16];
     int8_t deg[8];
     uint8_t ndeg, rows, prog, loop;             /* the progression: degrees, rows a chord, which preset (WB_NPROG - 1: custom); loop: the pattern, not the chain */
-    uint8_t roll[RL_N], pad1[2];                /* what the genre's roll decided: part styles, drum lanes */
+    uint8_t roll[RL_N], meter, pad1;            /* what the genre's roll decided: part styles, drum lanes; the meter (METERS) */
     track_t trk[NT];
     pat_t pat[NPAT];
     uint32_t crc;
@@ -147,6 +155,11 @@ static volatile uint16_t pad_hit;               /* ISR: pads (white keys) of the
 static volatile uint8_t sel_trk;                /* main: the selected track (its pads light) */
 static volatile int8_t pad_oct[NT];
 static volatile uint8_t punch_loop, punch_rev, punch_half, punch_scat, punch_dub, punch_wash, punch_lpf, punch_roll;
+static volatile uint8_t punch_meter;            /* a meter while held (0: the song's) */
+/* the meters: the steps of a bar of 16 rows played (fewer: the bar's end is left out; more: its last beat again) */
+#define NMETER 6u
+static const char *const METER_NAME[NMETER] = {"4/4", "3/4", "6/8", "5/4", "7/8", "9/8"};
+static const uint8_t METER_STEPS[NMETER] = {16, 12, 12, 20, 14, 18};
 static volatile uint8_t sit_mute;               /* SIT: the tracks a section leaves out (bit per track) */
 static volatile uint8_t rpt_held;               /* note repeat: a pad held with ARP (bit 7: on), its note in rpt_note */
 static volatile uint8_t rpt_note, rpt_trk;
@@ -179,11 +192,12 @@ static void ev_push(uint32_t type, uint32_t trk, uint32_t note, uint32_t vel)
 /* ---- what the pads play on each track: slices, drum tunes, the scale's notes over two octaves */
 static uint32_t pad_note(uint32_t t, uint32_t i)
 {
-    static const uint8_t BASE[NT] = {0, 0, 0, 0, 36, 55, 55};
+    static const uint8_t BASE[NT] = {0, 0, 0, 36, 55, 55};
+    static const uint8_t DRM_PAD[16] = {55, 58, 60, 63, 122, 125, 80, 82, 84, 86, 88, 91, 106, 108, 110, 113};
     switch (TRK_TYPE[t]) {
     case TY_BREAK: return i;
-    case TY_KICK: case TY_SNARE: return 52u + i;
-    case TY_HAT: return i < 12u ? 52u + i : 64u + (i - 12u);
+    case TY_KICK: return 52u + i;
+    case TY_DRUMS: return DRM_PAD[i & 15u];       /* snares 1-4, claps 5-6, closed hats 7-12, open hats 13-16 */
     default: return (uint32_t)clampi(deg_midi(deg_at((int32_t)BASE[t] + song.key) + pad_oct[t] * WB_SCALE_N[song.scale % WB_NSCALE] + (int32_t)i), 12, 120);
     }
 }

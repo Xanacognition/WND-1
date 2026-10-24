@@ -22,7 +22,7 @@
 #endif
 #endif
 #include "platform.c"
-#include "kawa_breaks.h"
+#include "wb_breaks.h"                     /* the breaks, clean (tools/gen_breaks.py --clean) */
 #include "kawa_art.h"
 #include "kawa_fonts.h"
 #include "wb_tables.h"

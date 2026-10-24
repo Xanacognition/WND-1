@@ -124,21 +124,35 @@ static void gen_track(uint32_t pi, uint32_t t, uint32_t mode, uint32_t dens, con
                 for (i = 8; i < 16u; i++) if (rnd(100) < 35u + dens * 40u / 100u) cell_set(&c[i], rnd(16) + 1u, 10u + rnd(5), FX_R, (const uint8_t[]){2, 4, 6, 8, 12}[rnd(5)]);
             }
             break;
-        case TY_KICK: case TY_SNARE: case TY_HAT: {
-            const char *lane = t == T_KIK ? kl : t == T_SNR ? sl : hl;
-            if (!lane || !lane[0] || mode == WM_OFF) break;
+        case TY_KICK:
+            if (!kl || !kl[0] || mode == WM_OFF) break;
             for (i = 0; i < 16u; i++) {
-                char ch = lane[i];
-                if (ch == 'x') cell_set(&c[i], 60, t == T_HAT ? (i % 4u == 0u ? 12u : (i & 1u) ? 7u : 10u) : 13u + rnd(3), 0, 0);
+                char ch = kl[i];
+                if (ch == 'x') cell_set(&c[i], 60, 13u + rnd(3), 0, 0);
                 else if (ch == 'g') cell_set(&c[i], 60, 4u + rnd(3), 0, 0);
-                else if (ch == 'o') cell_set(&c[i], 66, 10, 0, 0);
-                else if (t == T_KIK && !(i & 1u) && rnd(100) < dens / 10u) cell_set(&c[i], 60, 8u + rnd(4), 0, 0);
-                else if (t == T_SNR && rnd(100) < dens / 20u) cell_set(&c[i], 60, 4, 0, 0);
-                else if (t == T_HAT && rnd(100) < dens * 6u / 100u) cell_set(&c[i], 60, 6, FX_R, 3);
+                else if (!(i & 1u) && rnd(100) < dens / 10u) cell_set(&c[i], 60, 8u + rnd(4), 0, 0);
             }
-            if (t == T_SNR && last && rnd(100) < dens / 2u) cell_set(&c[15], 60, 9, FX_R, 2u + rnd(2));
             break;
-        }
+        case TY_DRUMS:                          /* the hats first, then the snare over them (it wins a shared row) */
+            if (mode == WM_OFF) break;
+            if (hl && hl[0])
+                for (i = 0; i < 16u; i++) {
+                    char ch = hl[i];
+                    if (ch == 'x') cell_set(&c[i], DN_HAT, i % 4u == 0u ? 12u : (i & 1u) ? 7u : 10u, 0, 0);
+                    else if (ch == 'g') cell_set(&c[i], DN_HAT, 5u + rnd(3), 0, 0);
+                    else if (ch == 'o') cell_set(&c[i], DN_OPEN, 10, 0, 0);
+                    else if (rnd(100) < dens * 6u / 100u) cell_set(&c[i], DN_HAT, 6, FX_R, 3);
+                }
+            if (sl && sl[0])
+                for (i = 0; i < 16u; i++) {
+                    char ch = sl[i];
+                    if (ch == 'x') cell_set(&c[i], DN_SNR, 13u + rnd(3), 0, 0);
+                    else if (ch == 'g') cell_set(&c[i], DN_SNR, 4u + rnd(3), 0, 0);
+                    else if (ch == 'o') cell_set(&c[i], DN_CLAP, 12, 0, 0);
+                    else if (!c[i].n && rnd(100) < dens / 20u) cell_set(&c[i], DN_SNR, 4, 0, 0);
+                }
+            if (sl && sl[0] && last && rnd(100) < dens / 2u) cell_set(&c[15], DN_SNR, 9, FX_R, 2u + rnd(2));
+            break;
         default: {
             int32_t r0;
 #define N(dd, i) ((uint32_t)fold_oct(deg_midi(r0 + prog_deg(o + (i)) + (dd))))
@@ -246,10 +260,13 @@ static void mutate_track(uint32_t pi, uint32_t t, uint32_t a)   /* a: 0..100 */
                 else { c->fx = 0; c->fv = 0; }
             } else if (!c->n && rnd(10) < 4u) cell_set(c, r % 16u + 1u, 7u + rnd(5), 0, 0);
             break;
-        case TY_KICK: case TY_SNARE: case TY_HAT: {
-            int keep = c->n && TRK_TYPE[t] != TY_HAT && c->v >= 12u && r % 4u == 0u;
+        case TY_KICK: case TY_DRUMS: {          /* the strong hits stay; ghost notes and hats come and go */
+            int hat = t == T_DRM && (!c->n || drm_kind(c->n) == DK_HAT), keep = c->n && c->n != NOTE_OFF && !hat && c->v >= 12u && r % 4u == 0u;
             if (c->n && !keep && rnd(10) < 6u) memset(c, 0, sizeof *c);
-            else if (!c->n) { int roll = t == T_HAT && rnd(5) == 0u; cell_set(c, 60, t == T_HAT ? 5u + rnd(5) : 4u + rnd(6), roll ? FX_R : 0u, roll ? 2u : 0u); }
+            else if (!c->n) {
+                int roll = hat && rnd(5) == 0u;
+                cell_set(c, t == T_KIK ? 60u : rnd(3) ? DN_HAT : DN_SNR, hat ? 5u + rnd(5) : 4u + rnd(6), roll ? FX_R : 0u, roll ? 2u : 0u);
+            }
             break;
         }
         default:
@@ -277,7 +294,7 @@ static void gen_pattern(uint32_t pi, uint32_t v)
     pat_blank(&song.pat[pi], prog_len());
     for (t = 0; t < NT; t++) {
         uint32_t mode = song_mode(t, 0), dens = song.trk[t].density;
-        int drum = t == T_KIK || t == T_SNR || t == T_HAT, brk_on = !(t == T_BRK && mode == WM_OFF);
+        int drum = t == T_KIK || t == T_DRM, brk_on = !(t == T_BRK && mode == WM_OFF);
         const char *kl = k1, *sl = s1, *hl = h1;
         switch (v) {
         case 1: dens = dens + 20u > 100u ? 100u : dens + 20u; break;
@@ -291,7 +308,7 @@ static void gen_pattern(uint32_t pi, uint32_t v)
         case 3:
             dens = dens + 35u > 100u ? 100u : dens + 35u;
             if (t == T_BRK && brk_on && g->storm) mode = WM_STORM;
-            if (t == T_SNR) dens = 100;
+            if (t == T_DRM) dens = 100;
             break;
         case 4: kl = k2; sl = s2; hl = h2; if (!drum) mode = song_mode(t, 1); break;
         case 5:
@@ -305,8 +322,8 @@ static void gen_pattern(uint32_t pi, uint32_t v)
             if (t == T_BRK && brk_on) mode = g->storm ? WM_STORM : WM_CHOP;
             break;
         case 7:
-            if (t == T_KIK || t == T_SNR) mode = WM_OFF;
-            if (t == T_HAT) hl = WB_HALF_LANE[2];
+            if (t == T_KIK) mode = WM_OFF;
+            if (t == T_DRM) { sl = ""; hl = WB_HALF_LANE[2]; }
             if (t == T_BRK && brk_on) mode = WM_SPARSE;
             if (t == T_BAS) mode = WL_SUB;
             if (t == T_KEY) mode = chd ? WK_SWELL : song_mode(t, 1);
@@ -326,31 +343,36 @@ static void sound_patch(uint32_t t, uint32_t k)   /* a factory sound onto a trac
     uint32_t i;
     switch (TRK_TYPE[t]) {
     case TY_KICK: k %= WB_NKICK; for (i = 0; i < 4u; i++) p[i] = WB_KICK[k][i]; break;
-    case TY_SNARE: k %= WB_NSNARE; for (i = 0; i < 5u; i++) p[i] = WB_SNARE[k][i]; break;
-    case TY_HAT: k %= WB_NHAT; for (i = 0; i < 4u; i++) p[i] = WB_HAT[k][i]; break;
+    case TY_DRUMS: k %= WB_NSNARE; for (i = 0; i < 5u; i++) p[i] = WB_SNARE[k][i]; break;
     case TY_SYNTH: k %= WB_NSYN; for (i = 0; i < 16u; i++) p[i] = WB_SYN[k][i]; break;
     default: return;
     }
     song.trk[t].patch = (uint8_t)k;
 }
+static void hat_patch(uint32_t t, uint32_t k)     /* DRM's hats */
+{
+    uint32_t i;
+    k %= WB_NHAT;
+    for (i = 0; i < 4u; i++) song.trk[t].p[PH_TUNE + i] = WB_HAT[k][i];
+    song.trk[t].patch2 = (uint8_t)k;
+}
 static uint32_t patch_count(uint32_t t)
 {
-    static const uint8_t N[5] = {0, WB_NKICK, WB_NSNARE, WB_NHAT, WB_NSYN};
+    static const uint8_t N[4] = {0, WB_NKICK, WB_NSNARE, WB_NSYN};
     return N[TRK_TYPE[t]];
 }
 static const char *patch_name(uint32_t t, uint32_t k)
 {
     switch (TRK_TYPE[t]) {
     case TY_KICK: return WB_KICK_NAME[k % WB_NKICK];
-    case TY_SNARE: return WB_SNARE_NAME[k % WB_NSNARE];
-    case TY_HAT: return WB_HAT_NAME[k % WB_NHAT];
+    case TY_DRUMS: return WB_SNARE_NAME[k % WB_NSNARE];
     case TY_SYNTH: return WB_SYN_NAME[k % WB_NSYN];
     default: return "";
     }
 }
 static void track_defaults(uint32_t t)
 {
-    static const uint8_t VOL[NT] = {60, 50, 42, 28, 66, 58, 48}, REV[NT] = {6, 0, 15, 0, 0, 30, 40}, DLY[NT] = {0, 0, 0, 0, 0, 20, 12};
+    static const uint8_t VOL[NT] = {60, 50, 44, 66, 58, 48}, REV[NT] = {6, 0, 12, 0, 30, 40}, DLY[NT] = {0, 0, 0, 0, 20, 12};
     track_t *tr = &song.trk[t];
     memset(tr, 0, sizeof *tr);
     tr->vol = VOL[t];
@@ -362,6 +384,7 @@ static void track_defaults(uint32_t t)
     switch (TRK_TYPE[t]) {
     case TY_BREAK: tr->p[PB_SRC] = 0; tr->p[PB_GATE] = 100; tr->p[PB_TONE] = 100; break;
     case TY_SYNTH: sound_patch(t, t == T_BAS ? 0u : t == T_KEY ? 3u : 4u); tr->p[PY_CTRP] = 6; tr->p[PY_CTRL] = 45; break;
+    case TY_DRUMS: sound_patch(t, 0); hat_patch(t, 0); break;
     default: sound_patch(t, 0); break;
     }
 }
@@ -405,15 +428,20 @@ static void song_new(uint32_t gi)
     song.key = (uint8_t)(const uint8_t[]){0, 2, 4, 5, 7, 9, 10, 11, 1, 3}[rnd(10)];
     song.bpm = (uint8_t)(g->bpm[0] + rnd((uint32_t)(g->bpm[1] - g->bpm[0]) + 1u));
     song.swing = (uint8_t)(g->swing[0] + rnd((uint32_t)(g->swing[1] - g->swing[0]) + 1u));
-    song.age = g->age;
-    song.crush = g->crush;
+    song.age = 0;                               /* clean: tape AGE and CRUSH are there to dial in (MST) */
+    song.crush = 0;
     song.space = g->space;
     song.pump = g->pump;
     song.mvol = 85;
     for (t = 0; t < NT; t++) track_defaults(t);
-    for (t = 1; t < 6u; t++) {                  /* KIK SNR HAT BAS KEY from the genre's pools */
-        uint32_t n = g->nsnd[t - 1u];
-        if (n) sound_patch(t, g->snd[t - 1u][rnd(n)]);
+    {                                           /* the sounds from the genre's pools: kick, snare, hats, bass, keys */
+        static const uint8_t TO[5] = {T_KIK, T_DRM, T_DRM, T_BAS, T_KEY};
+        for (t = 0; t < 5u; t++) {
+            uint32_t n = g->nsnd[t];
+            if (!n) continue;
+            if (t == 2u) hat_patch(T_DRM, g->snd[t][rnd(n)]);
+            else sound_patch(TO[t], g->snd[t][rnd(n)]);
+        }
     }
     if (g->nsyn) sound_patch(T_SYN, g->syn[rnd(g->nsyn)]);
     song.trk[T_BRK].p[PB_SRC] = g->nbrk ? g->brk[rnd(g->nbrk)] : 0;
@@ -512,7 +540,7 @@ static void transpose_to(uint32_t k)
 }
 
 /* ---- SIT: sections that leave tracks out, small mutations, another pattern now and then */
-static const uint8_t SIT_SECT[6] = {0x0F, 0x46, 0x00, 0x25, 0x2E, 0x1F};   /* DRIFT DUST GROOVE PULSE BREAKS FLOAT (bit: muted) */
+static const uint8_t SIT_SECT[6] = {0x07, 0x26, 0x00, 0x15, 0x16, 0x0F};   /* DRIFT DUST GROOVE PULSE BREAKS FLOAT (bit: muted) */
 static const char *const SIT_NAME[6] = {"DRIFT", "DUST", "GROOVE", "PULSE", "BREAKS", "FLOAT"};
 static uint8_t sit_on, sit_sect = 2, sit_left = 4;
 static void sit_step(uint32_t pi)               /* at the end of each pattern while SIT plays */
