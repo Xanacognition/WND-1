@@ -1231,7 +1231,7 @@ static uint32_t bp_turn(void) { return sq_play ? (sq_rowtick & 15u) * 4096u : 0u
 static void bp_song(void)                       /* a frame's joint: two gears in mesh, its axis and its sizes */
 {
     bp_gear(176, 150, 34, 14, bp_turn(), C_BP);
-    bp_gear(122, 168, 18, 8, 0x10000u - bp_turn() * 2u, C_BP);
+    bp_gear(122, 168, 18, 8, 65536u - bp_turn() * 2u, C_BP);
     bp_dash(176, 100, 176, 196, C_BP);
     bp_dash(110, 150, 230, 150, C_BP);
     bp_dim(142, 210, 106, C_BP);
