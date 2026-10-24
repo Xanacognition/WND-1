@@ -149,6 +149,8 @@ static void note_name(uint32_t m, char *s)      /* "C-4", "F#2" */
 static volatile uint8_t sq_play, sq_req;        /* main -> ISR: 1 start, 2 stop */
 static volatile uint8_t sq_pi, sq_row, sq_cue = 0xFF, sq_chainpos;
 static volatile uint32_t sq_rowtick;            /* ISR: rows played (the screen follows) */
+static volatile uint8_t sq_jump = 0xFF;         /* main -> ISR: the arrangement's part to go to at the next bar line (live) */
+static volatile uint8_t sq_start;               /* main -> ISR: the part PLAY starts from */
 static volatile uint8_t sq_end_pi = 0xFF;       /* ISR -> main: this pattern just ended (mutation, SIT) */
 static volatile uint32_t trig_ms[NT];           /* ISR: when each track last played (the headers flash) */
 static volatile uint16_t pad_hit;               /* ISR: pads (white keys) of the selected track that just played */

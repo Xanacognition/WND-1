@@ -576,8 +576,9 @@ static void seq_chunk(void)
         sq_play = 1;
         sq_pos = 0;
         sq_frame = 0;
-        sq_chainpos = 0;
-        sq_pi = song.nchain > 1u && !song.loop ? song.chain[0] : song.cur;
+        sq_chainpos = (uint8_t)(sq_start < song.nchain ? sq_start : 0u);
+        sq_pi = song.nchain > 1u && !song.loop ? song.chain[sq_chainpos] : song.cur;
+        sq_jump = 0xFF;
         sq_rowlen = next_rowlen();
         row_fire();
     } else if (sq_req == 2u) {
@@ -607,11 +608,17 @@ static void seq_chunk(void)
         uint32_t L = p->len ? p->len : 16u;
         sq_frame -= sq_rowlen;
         sq_rowlen = next_rowlen();
-        if (++sq_pos >= steps_of(L)) {          /* the end of the pattern: the next one */
-            sq_pos = 0;
+        if (++sq_pos >= steps_of(L) || (sq_jump < 16u && sq_pos % meter_steps() == 0u)) {   /* the pattern's end, or a */
+            sq_pos = 0;                                                                      /* bar line with a jump due */
             sq_end_pi = sq_pi;
             if (!exp_mark) exp_mark = exp_frames + CH;   /* (its first row sounds at the next chunk) */
-            if (sq_cue < NPAT) { sq_pi = sq_cue; sq_cue = 0xFF; }
+            if (sq_jump < 16u) {                /* live: the part tapped on ARR, from its start */
+                uint32_t k = sq_jump % (song.nchain ? song.nchain : 1u);
+                sq_jump = 0xFF;
+                sq_cue = 0xFF;
+                sq_chainpos = (uint8_t)k;
+                sq_pi = song.chain[k] % NPAT;
+            } else if (sq_cue < NPAT) { sq_pi = sq_cue; sq_cue = 0xFF; }
             else if (song.nchain > 1u && !song.loop) { sq_chainpos = (uint8_t)((sq_chainpos + 1u) % song.nchain); sq_pi = song.chain[sq_chainpos] % NPAT; }
             if (punch_rev) rev_at = 0;
         }
@@ -657,7 +664,7 @@ static void dsp_reset(void)
     for (t = 0; t < NT; t++) { trk_lp[t] = 0; trk_g[t] = trk_gt[t] = 0; }
     sq_play = 0; sq_req = 0; sq_frame = 0; sq_pos = 0; sq_cue = 0xFF;
     punch_loop = punch_rev = punch_half = punch_scat = punch_dub = punch_wash = punch_lpf = punch_roll = punch_meter = 0;
-    sit_mute = 0; rpt_held = 0;
+    sit_mute = 0; rpt_held = 0; sq_jump = 0xFF; sq_start = 0;
     evq_r = evq_w;
     rnd_isr = 0x9E3779B9u;
     sq_racc = 0; exp_frames0 = exp_frames = exp_mark = 0;

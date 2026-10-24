@@ -16,7 +16,7 @@ enum { PG_SNG, PG_TRK, PG_SND, PG_CHD, PG_GEN, PG_MIX, PG_MST, PG_ARR, PG_N };
 static const char *const PG_NAME[PG_N] = {"SNG", "TRK", "SND", "CHD", "GEN", "MIX", "MST", "ARR"};
 static const char *const PG_HINT[PG_N] = {"K2 GENRE, BLINKING KEY", "SELECT ROW, PLAY PADS", "SHAPE THE SOUND",
                                           "WHITE KEYS: CHORDS", "CHANCE, MUTATION, DRIFT", "LEVEL, PAN, SENDS",
-                                          "TEMPO, SWING, METER", "WHITE 1-8 PLACE A PATTERN"};
+                                          "TEMPO, SWING, METER", "WHITE KEY: GO TO PART"};
 static const uint8_t PG_BTN[PG_N] = {BTN_SAVE, BTN_HOME, BTN_EDIT, BTN_SEL, BTN_LFO, BTN_ENV, BTN_GLO, BTN_SEQ};
 static const char *const SECT_NAME[NPAT] = {"MAIN", "VARY", "DOWN", "BUILD", "GROOVE", "HALF", "CHOP", "OUTRO"};
 
@@ -106,7 +106,7 @@ static void drm_name(uint32_t n, char *o)       /* "SNR +2", "HHO -1" */
 
 /* ================================================================ the store */
 #define SLOT_SIZE 0x4000u
-#define NSLOT 16u
+#define NSLOT 15u                               /* slot 0 the autosave, 14 for songs */
 typedef char song_fits_a_slot[sizeof(song_t) <= SLOT_SIZE ? 1 : -1];
 static char slot_name[NSLOT][16];
 static uint8_t slot_ok[NSLOT];
@@ -885,6 +885,17 @@ static void arr_set(uint32_t pat)               /* white 1..8 on ARR: this patte
     if (arr_pos < 15u) arr_pos++;
     touch();
 }
+static void arr_launch(uint32_t k)              /* live: a white key on ARR goes to that part at the next bar line */
+{
+    char buf[28], *e;
+    if (k >= song.nchain) return;
+    arr_pos = (uint8_t)k;
+    buf[0] = 0;
+    e = fmt_u(str_cat(buf, "PART "), k + 1u, 0);
+    if (sq_play) { sq_jump = (uint8_t)k; str_cat(e, ": AT THE BAR LINE"); }
+    else { sq_start = (uint8_t)k; song.cur = song.chain[k] % NPAT; str_cat(e, ": PLAY STARTS HERE"); }
+    toast(buf);
+}
 static void arr_fn(uint32_t i)
 {
     uint32_t k, n = song.nchain;
@@ -904,7 +915,7 @@ static void arr_fn(uint32_t i)
         if (arr_pos >= song.nchain) arr_pos = (uint8_t)(song.nchain - 1u);
         toast("PART DELETED");
     } else if (i == 2u) { song.loop ^= 1u; toast(song.loop ? "LOOP THE PATTERN" : "PLAY THE ARRANGEMENT"); }
-    else { arr_jump(arr_pos); toast(sq_play ? "NEXT: THIS PART" : "FROM THIS PART"); }
+    else { arr_launch(arr_pos); return; }
     touch();
 }
 
@@ -1049,7 +1060,7 @@ static void ui_input(void)
             continue;
         }
         if (page == PG_CHD) { chord_pad((uint32_t)w); continue; }
-        if (page == PG_ARR) { if (w < (int)NPAT) arr_set((uint32_t)w); continue; }
+        if (page == PG_ARR) { arr_launch((uint32_t)w); continue; }
         {
             uint32_t n = pad_note(t, (uint32_t)w);
             int rep = arp_on() && sq_play;
@@ -1119,8 +1130,11 @@ static void ui_leds(void)
     for (i = 0; i < 16u; i++) {
         uint32_t lv = (fm1_in.notes >> KEY_OF_WHITE[i]) & 1u ? 2u : 0u;
         if (perf) lv = i < NPUNCH ? ((punch_keys >> KEY_OF_WHITE[i]) & 1u ? 2u : 1u) : 0u;
-        else if (held & (1u << BTN_SEQ) || page == PG_ARR)
-            lv = i < NPAT ? (i == (sq_play ? sq_pi : song.cur) ? 2u : 1u) : i == 8u && !(page == PG_ARR) ? (song.loop ? 2u : 1u) : 0u;
+        else if (held & (1u << BTN_SEQ))
+            lv = i < NPAT ? (i == (sq_play ? sq_pi : song.cur) ? 2u : 1u) : i == 8u ? (song.loop ? 2u : 1u) : 0u;
+        else if (page == PG_ARR)                /* the parts: the one waiting for the bar line blinks, the one playing lit */
+            lv = i >= song.nchain ? 0u : i == sq_jump ? ((fm1_ms / 110u) & 1u ? 2u : 0u) :
+                 (sq_play ? i == sq_chainpos && !song.loop : i == sq_start) ? 2u : 1u;
         else if (page == PG_CHD) {
             int32_t pd = sq_play ? prog_deg(sq_row) : song.deg[chd_slot < song.ndeg ? chd_slot : 0u];
             int32_t n7 = ((pd % 7) + 7) % 7;
@@ -1382,23 +1396,45 @@ static void draw_grid(void)
         if (cur && !play) g_frame(lane_x(sel), y, FOC_W - 2, ROW_H, C_BLUE);
     }
 }
-static void draw_perform(void)                  /* FX: the punch-ins on the white keys, the tracks on the black */
-{
+static void draw_perform(void)                  /* FX: the FM-1's keyboard, each punch-in wired to its white key, the tracks */
+{                                               /* on the black ones */
+    static const char *const SHORT[NPUNCH] = {"R4", "R8", "R16", "R32", "REV", "HLF", "SCT", "DUB", "WSH", "LPF", "3/4", "7/8", "5/4"};
+    const int32_t KY = TOP_H + 52, KW = 15, WH = 42, BH = 25;
     uint32_t k;
     g_rect(0, TOP_H, 240, BODY_H, C_BG);
     bp_sheet(TOP_H, BODY_H);
-    bp_perform();
     g_text(6, TOP_H + 3, "PERFORM", C_ORANGE, T_CROP | T_BOLD);
     g_text(70, TOP_H + 3, fx_latch ? "STAYS - FX CLOSES" : "FX TWICE: IT STAYS", C_MUTED, T_CROP);
-    for (k = 0; k < NPUNCH; k++) {
-        int32_t x = 3 + (int32_t)(k % 4u) * 59, y = TOP_H + 18 + (int32_t)(k / 4u) * 22;
-        int on = (punch_keys >> KEY_OF_WHITE[k]) & 1u;
-        g_rect(x, y, 56, 20, on ? C_ORANGE : C_PANEL);
-        g_text_c(x + 28, y + 4, PUNCH_NAME[k], on ? C_BG : C_TXT, T_CROP);
+    for (k = 0; k < 16u; k++) {                 /* the white keys, and the call-outs over them */
+        int32_t x = (int32_t)k * KW, cx = x + KW / 2;
+        int on = k < NPUNCH && ((punch_keys >> KEY_OF_WHITE[k]) & 1u), down = (fm1_in.notes >> KEY_OF_WHITE[k]) & 1u;
+        g_rect(x + 1, KY, KW - 2, WH, k < NPUNCH ? (on ? RGB(206, 220, 246) : RGB(196, 190, 178)) : RGB(98, 94, 88));
+        if (on || down) { g_frame(x + 1, KY, KW - 2, WH, C_BLUE); g_frame(x + 2, KY + 1, KW - 4, WH - 2, C_BLUE); }
+        if (k < NPUNCH) {
+            int32_t ly = TOP_H + ((k & 1u) ? 32 : 18);
+            g_rect(cx, ly + 13, 1, KY - ly - 13, on ? C_BLUE : C_BP2);   /* the wire */
+            int32_t bx = clampi(cx - 13, 1, 239 - 27);   /* (the label stays on the screen) */
+            g_rect(bx, ly, 27, 13, on ? C_ORANGE : C_PANEL);
+            g_text_c(bx + 14, ly, SHORT[k], on ? C_BG : C_TXT, T_CROP);
+        }
     }
-    g_text(6, TOP_H + 106, perf_solo ? "BLACK KEYS: SOLO" : "BLACK KEYS: MUTE", C_MUTED, T_CROP);
+    {                                           /* the black keys: the tracks (their colour, dark when muted), F1..F4 */
+        uint32_t w, b = 0;
+        for (w = 0; w + 1u < 16u; w++) {
+            uint32_t n = (KEY0 + KEY_OF_WHITE[w]) % 12u;   /* a black key follows F, G, A, C and D */
+            int32_t x = (int32_t)(w + 1u) * KW - 5;
+            uint16_t c;
+            if (!(n == 5u || n == 7u || n == 9u || n == 0u || n == 2u)) continue;
+            c = b < NT ? (song.trk[b].mute ? C_INSET : song.trk[b].solo ? C_BLUE : TRK_COL[b]) : b >= BLK_F1 ? C_PANEL : RGB(40, 38, 36);
+            g_rect(x, KY, 10, BH, RGB(16, 15, 14));
+            g_rect(x + 1, KY, 8, BH - 1, c);
+            if (b < NT && fm1_ms - flash_ms[b] < 90u && !song.trk[b].mute) g_rect(x + 2, KY + BH - 6, 6, 4, RGB(255, 255, 255));
+            b++;
+        }
+    }
+    g_text(6, TOP_H + 98, perf_solo ? "BLACK 1-6: SOLO" : "BLACK 1-6: MUTE", C_MUTED, T_CROP);
     for (k = 0; k < NT; k++) {
-        int32_t x = 3 + (int32_t)k * 39, y = TOP_H + 122;
+        int32_t x = 3 + (int32_t)k * 39, y = TOP_H + 113;
         const track_t *tr = &song.trk[k];
         int fl = fm1_ms - flash_ms[k] < 90u;
         g_rect(x, y, 36, 20, tr->solo ? C_BLUE : tr->mute ? C_INSET : C_PANEL);
@@ -1420,7 +1456,7 @@ static void draw_arr(void)
     g_text(234 - g_text_w(s), TOP_H + 3, s, song.loop ? C_CYAN : C_MUTED, T_CROP);
     for (k = 0; k < 16u; k++) {
         int32_t x = 3 + (int32_t)(k % 4u) * 59, y = TOP_H + 18 + (int32_t)(k / 4u) * 31;
-        int on = k < n, play = on && sq_play && !song.loop && k == sq_chainpos, cur = k == arr_pos;
+        int on = k < n, play = on && sq_play && !song.loop && k == sq_chainpos, cur = k == arr_pos, wait = on && k == sq_jump;
         if (on) {
             uint32_t pt = song.chain[k] % NPAT;
             g_rect(x, y, 56, 28, play ? C_ORANGE : C_PANEL);
@@ -1435,7 +1471,9 @@ static void draw_arr(void)
             g_rect(x, y, 56, 28, C_ROW);
             if (k == n) g_text_c(x + 28, y + 8, "+", C_MUTED, T_CROP);
         }
-        if (cur) { g_frame(x, y, 56, 28, C_BLUE); g_frame(x + 1, y + 1, 54, 26, C_BLUE); }
+        if (wait && ((fm1_ms / 110u) & 1u)) g_rect(x, y, 56, 28, C_ORANGE), g_text(x + 3, y + 14, "NEXT", C_BG, T_CROP | T_BOLD);
+        else if (cur) { g_frame(x, y, 56, 28, C_BLUE); g_frame(x + 1, y + 1, 54, 26, C_BLUE); }
+        if (on && !sq_play && k == sq_start && n > 1u) g_text(x + 44, y + 2, ">", C_ORANGE, T_CROP | T_BOLD);
     }
 }
 static void draw_sng(void)
@@ -1570,7 +1608,7 @@ static void draw_info(void)
     g_text(236 - g_text_w(s), INFO_Y + 2, s, C_CYAN, T_CROP | T_BOLD);
 }
 static const char *perf_fn(uint32_t i) { return (const char *const[]){perf_solo ? "SOLO" : "MUTE", "", sit_on ? "SIT OFF" : "SIT", "ALL ON"}[i]; }
-static const char *arr_fn_label(uint32_t i) { return (const char *const[]){"INSERT", "DELETE", song.loop ? "SONG" : "LOOP", "JUMP"}[i]; }
+static const char *arr_fn_label(uint32_t i) { return (const char *const[]){"INSERT", "DELETE", song.loop ? "SONG" : "LOOP", "GO"}[i]; }
 static void draw_knobs(void)
 {
     uint32_t i;

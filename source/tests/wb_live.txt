@@ -1,0 +1,19 @@
+300 btn 12
+1500 press 2
+1600 release 2
+1650 press 2
+1700 release 2
+1800 keys 0x1
+1850 keys 0
+1900 keys 0x80
+1950 keys 0
+2200 shot perform
+2300 btn 2
+2500 press 11
+2550 release 11
+2700 keys 0x80
+2750 keys 0
+2800 shot arr_wait
+2900 shot arr_wait2
+5200 shot arr_switched
+5300 end
