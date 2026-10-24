@@ -8,6 +8,7 @@
  *   FM      six operators, 32 algorithms: msfa (Dexed's core) as Felucca ported it (fm6_core.c), two voices
  *   KIT     16 synthesised drums, two voices
  *   SAMPLE  a break (16 slices on the white keys) or a sample of the user's, sliced or played on the notes
+ *   SPU     GEARFRAME's: PlayStation SPU ADPCM instruments, four voices, chords (gear_spu.c)
  * Then, for every track: the ADSR envelope (ENV page), the track's effect (a filter, drive, crush,
  * decimate, ring, tremolo or wah, with its mix), the LFO (pitch, volume, the effect's A, pan or shape).
  * Control (envelopes, pitch, LFO) runs once per chunk of 16 frames; FM renders 32 frames at a time. */
@@ -222,6 +223,7 @@ static void fm_build(uint32_t t)                /* main loop: the FM track's pat
 }
 
 #include "kawa_drums.c"
+#include "gear_spu.c"
 
 /* ---- SAMPLE: a break or a user sample, two voices so that a new note fades the last one out */
 typedef struct {
@@ -374,6 +376,7 @@ static void voice_on(uint32_t t, uint32_t note, uint32_t vol, const tricks_t *k,
     if (note == NOTE_OFF) {
         v->gate = 0;
         if (v->stage && v->stage < 4u) v->stage = 4;
+        if (e == E_SPU) spu_release(t);
         if (e == E_FM && t == fm_trk) {
             fm6_note_t *n = &fmn[fm_cur];
             if (n->live && n->down) fm6_note_key(n, fm_patch, 0);
@@ -409,6 +412,10 @@ static void voice_on(uint32_t t, uint32_t note, uint32_t vol, const tricks_t *k,
     v->shape = (uint8_t)p[P_SHAPE];
     v->crush = (uint8_t)p[P_CRUSH];
     v->vib = (uint8_t)(e == E_FM ? 0 : p[P_VIB]);
+    if (e == E_SPU) {                           /* (its knobs are elsewhere) */
+        v->vib = (uint8_t)p[P_SPVIB];
+        v->crush = (uint8_t)p[P_SPCRU];
+    }
     if (nm == NM_NOTE) {
         int32_t gv;
         int fg = trick(k, FX_GLIDE, &gv);
@@ -423,7 +430,7 @@ static void voice_on(uint32_t t, uint32_t note, uint32_t vol, const tricks_t *k,
             if (v->env < 6000 && e <= E_WAVE)
                 v->ph = v->ph2 = 0;             /* the same start every time (chip punch), when it cannot click */
         }
-        if (trick(k, FX_ARP, &sv) && sv >= 0 && sv < 14) {
+        if (trick(k, FX_ARP, &sv) && sv >= 0 && sv < 14 && e != E_SPU) {   /* (SPU: the chord at once, below) */
             v->arp_n = (uint8_t)CHORDS[sv].n;
             for (i = 0; i < 4u; i++)
                 v->arp_off[i] = CHORDS[sv].off[i];
@@ -447,6 +454,8 @@ static void voice_on(uint32_t t, uint32_t note, uint32_t vol, const tricks_t *k,
             fm6_note_init(n, fp, (int32_t)note + fp[FP_TRNSP] - 24, (int32_t)(vol * 8u + 7u), 1);
             fm6_lfo_key(&fm_lfo);
         }
+        if (e == E_SPU && !v->glide)            /* (a glide: the voices follow the track's pitch) */
+            spu_on(t, trick(k, FX_ARP, &sv) ? sv : -1);
     } else if (e == E_KIT)
         drum_on(t, cell_idx(note), (trick(k, FX_PITCH, &sv) ? sv : 0) + v->tb_tr, trick(k, FX_CRUSH, &sv) ? sv : -1);
     else
@@ -469,6 +478,8 @@ static void voice_off(uint32_t t)
     v->gate = 0;
     if (v->stage && v->stage < 4u)
         v->stage = 4;
+    if (prj.snd[t].engine == E_SPU)
+        spu_release(t);
     if (prj.snd[t].engine == E_FM && t == fm_trk) {
         fm6_note_t *n = &fmn[fm_cur];
         if (n->live && n->down) fm6_note_key(n, fm_patch, 0);
@@ -482,6 +493,7 @@ static void voice_cut(uint32_t t)                /* CUT: the note stops now, wha
     drum_choke(&drum[t][1]);
     smp[t][0].gtgt = smp[t][1].gtgt = 0;
     smp[t][0].gstep = smp[t][1].gstep = -(32767 / 120);
+    spu_cut(t);
 }
 
 static void tb_stop(uint32_t t)
@@ -511,6 +523,7 @@ static void voice_kill(uint32_t t)               /* the engine changed (t NTRK: 
         tb_stop(t);
         drum[t][0].on = drum[t][1].on = 0;
         smp[t][0].on = smp[t][1].on = 0;
+        spu_kill(t);
         if (t == fm_trk)
             fmn[0].live = fmn[1].live = 0;
     }
@@ -623,7 +636,7 @@ static void track_chunk(uint32_t t, int32_t *out)
     const int8_t *p = prj.snd[t].p;
     uint32_t e = prj.snd[t].engine, i, dest = (uint32_t)p[P_LFOD];
     int32_t raw[CHUNK], pit, gain, tgt, da, amp, fxa = p[P_FXA];
-    int32_t ton = TON_A[clampi(e == E_KIT ? p[P_KTON] : e == E_SAMPLE ? p[P_STON] : p[P_TON], 0, 15)];
+    int32_t ton = TON_A[clampi(e == E_KIT ? p[P_KTON] : e == E_SAMPLE ? p[P_STON] : e == E_SPU ? p[P_SPTON] : p[P_TON], 0, 15)];
     int active = v->stage != 0 || v->amp != 0;
     lfo_chunk(v, p);
     switch (v->stage) {                         /* ADSR, once a chunk */
@@ -773,6 +786,11 @@ static void track_chunk(uint32_t t, int32_t *out)
             if (!fmn[0].live && !fmn[1].live && !v->stage)
                 active = 0;
         }
+    } else if (e == E_SPU) {                    /* (its voices have their own envelopes: the track's stays open) */
+        active = spu_chunk(t, pit, raw);
+        if (ton < 32767)
+            for (i = 0; i < CHUNK; i++) { v->lp += (int32_t)(((int64_t)(raw[i] - v->lp) * ton) >> 15); raw[i] = v->lp; }
+        if (!active && !v->amp) return;
     } else if (e == E_KIT) {
         if (cpu_shed >= 3u) drum[t][drum_next[t]].on = 0;   /* (the governor: the older voice goes) */
         drum_chunk(&drum[t][0], raw);
@@ -791,7 +809,7 @@ static void track_chunk(uint32_t t, int32_t *out)
     if (!active && !v->amp)
         return;
     /* the envelope and the note's volume, ramped over the chunk */
-    gain = (int32_t)(((uint32_t)v->env * (uint32_t)v->env) >> 17);
+    gain = e == E_SPU ? 32767 : (int32_t)(((uint32_t)v->env * (uint32_t)v->env) >> 17);
     tgt = (int32_t)(((int64_t)gain * ((v->volq * 18) >> 16)) >> 8);   /* vol 15 -> ~1.05 x gain */
     tgt = (int32_t)(((int64_t)tgt * ((p[P_VOL] & 15) * 5461)) >> 16);   /* MIX VOLUME: 12 = x 1 (no division) */
     if (dest == LFD_VOL)

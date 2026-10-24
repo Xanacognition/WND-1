@@ -18,11 +18,11 @@
 
 static const char *const PAGE_NAMES[LANG_N][PG_N] = {
     {"PISTES", "GRILLE", "SON", "ENVELOPPE", "MIX", "MAGIE", "GAMME", "CHAINE", "PROJETS", "OPTIONS", "EFFETS", "AIDE", "",
-     "GROOVE", "ENVOIS", "GENRE"},
+     "GROOVE", "ENVOIS", "STYLE"},
     {"TRACKS", "GRID", "SOUND", "ENVELOPE", "MIX", "MAGIC", "SCALE", "SONG", "PROJECTS", "OPTIONS", "EFFECTS", "HELP", "",
-     "GROOVE", "SENDS", "GENRE"},
+     "GROOVE", "SENDS", "STYLE"},
     {"PISTAS", "REJILLA", "SONIDO", "ENVOLVENTE", "MEZCLA", "MAGIA", "ESCALA", "CANCION", "PROYECTOS", "OPCIONES", "EFECTOS",
-     "AYUDA", "", "GROOVE", "ENVIOS", "GENERO"}};
+     "AYUDA", "", "GROOVE", "ENVIOS", "ESTILO"}};
 #define PAGE_NAME PAGE_NAMES[lang]
 static uint8_t page = PG_BOOT, page_back = PG_TRACK, help_pg = PG_TRACK;
 static uint8_t cur_row, cur_trk, ui_pat, rec, snd_page, grid_page, fx_bank, fx_sticky, mg_scope, follow = 1, fm_op = 1;
@@ -283,6 +283,36 @@ static void dog_pal(uint16_t *pal, uint16_t band, uint16_t cups)
     pal[14] = RGB(226, 140, 120);               /* inner ear */
     pal[15] = RGB(170, 160, 230);               /* z z z */
 }
+/* GEARFRAME: in a HUD theme the corner is a frame's head, 16 x 16: its fins in the page's colour, its visor in the
+ * track's, the eye sweeping the visor while it plays (red: REC; the live effects' colour while one plays; dark asleep) */
+static void draw_head(int32_t x, int32_t y)
+{
+    static const char *const HEAD[16] = {
+        "f.............f.", ".f...........f..", "..f..aaaaaa..f..", "...faaaaaaaaf...", "...aaddddddaa...",
+        "..aadvvvvvvdaa..", "..advkkkkkkvda..", "..aadvvvvvvdaa..", "...aaddddddaa...", "...aa.aaaa.aa...",
+        "..daa.adda.aad..", ".dddaa.aa.aaddd.", ".dd..aaaaaa..dd.", "................", "................",
+        "................"};
+    uint32_t r, c, on = lfx_on;
+    int32_t eye, nod = sq_play && (sq_row & 3u) == 0u && (sq_frac >> 24) < 90u;
+    uint16_t fin = PAGE_COL[page < PG_N ? page : 0], vis = TRK_COL[trk()], glow;
+    int asleep = !sq_play && fm1_ms - last_input_ms > 20000u;
+    glow = rec ? C_REC : on ? LBANK_COL[(on & 0xFFFF0000u) ? 1 : 0] : asleep ? C_RULE : C_WHITE;
+    if (sq_play) {                              /* the eye: across the visor and back, a beat each way */
+        uint32_t ph = ((uint32_t)(sq_row & 7u) * 256u + (sq_frac >> 24)) >> 7;   /* 0..15 */
+        eye = (ph < 8u ? (int32_t)ph : 15 - (int32_t)ph) * 4 / 7;
+    } else
+        eye = 2;
+    for (r = 0; r < 16u; r++)
+        for (c = 0; c < 16u; c++) {
+            char k = HEAD[r][c];
+            uint16_t col;
+            if (k == '.') continue;
+            col = k == 'f' ? fin : k == 'a' ? C_MID : k == 'd' ? C_RULE : k == 'k' ? C_BG2 : g_mix(C_BG2, vis, asleep ? 60 : 150);
+            g_px(x + (int32_t)c, y + (int32_t)r + nod, col);
+        }
+    g_rect(x + 5 + eye, y + 6 + nod, 2, 1, glow);   /* (the visor's inside: x 5..10) */
+}
+
 static void draw_mascot(int32_t x, int32_t y)
 {
     uint16_t pal[16];
@@ -323,7 +353,8 @@ static void draw_top(void)
     if (!g_vis(0, 20)) return;
     g_rect(0, 0, 240, 20, C_BG);
     g_rect(0, 19, 240, 1, C_RULE);
-    draw_mascot(2, 2);
+    if (g_hud) draw_head(2, 2);
+    else draw_mascot(2, 2);
     w = g_text_w(PAGE_NAME[pg]) + 10;
     g_rrect(21, 3, w, 14, pc);
     g_text(26, 3, PAGE_NAME[pg], C_INK, T_CROP | T_BOLD);
@@ -815,6 +846,67 @@ static void sed_slices_px(const sedit_t *se, int32_t *sx)   /* the 16 slices' st
     for (i = 0; i < 16u; i++)
         sx[i] = se->manual ? (int32_t)((uint32_t)se->sl[i] * 224u >> 16) : (int32_t)(a + ((b - a) * i >> 4));
 }
+/* GEARFRAME: an SPU instrument, its ADPCM decoded into 216 columns of peaks (once per instrument), the loop in the
+ * track's colour, the newest voice's block as a playhead, and its four voices */
+static uint8_t spu_pk[216], spu_pk_of = 0xFF;
+static void spu_peaks(uint32_t inst)
+{
+    static spuv_t d;
+    const spu_inst_t *in = &SPU_INST[inst % SPU_N];
+    uint32_t b, i, n = (uint32_t)in->nblk * 28u, x;
+    if (spu_pk_of == inst) return;
+    spu_pk_of = (uint8_t)inst;
+    for (x = 0; x < 216u; x++) spu_pk[x] = 0;
+    d.inst = (uint8_t)inst;
+    d.old = d.older = 0;
+    for (b = 0; b < in->nblk; b++) {
+        d.addr = (uint16_t)b;
+        spu_decode(&d);
+        for (i = 0; i < 28u; i++) {
+            int32_t a = d.s[3u + i] < 0 ? -d.s[3u + i] : d.s[3u + i];
+            uint32_t at = (b * 28u + i) * 216u / n;
+            if ((uint32_t)(a >> 9) > spu_pk[at]) spu_pk[at] = (uint8_t)(a >> 9);
+        }
+    }
+}
+static void draw_spu(uint32_t t, uint16_t col)
+{
+    const int8_t *p = prj.snd[t].p;
+    uint32_t inst = (uint32_t)clampi(p[P_SPI], 0, (int32_t)SPU_N - 1), x, i, on = 0;
+    const spu_inst_t *in = &SPU_INST[inst];
+    uint32_t lx = in->loop == 0xFFFFu ? 216u : (uint32_t)in->loop * 216u / in->nblk, ph = 999, hz;
+    char s[32];
+    spu_peaks(inst);
+    if (spu_addr[t] != 0xFFFFu) ph = (uint32_t)spu_addr[t] * 216u / in->nblk;
+    g_text(12, 59, SPU_NAME[lang][inst], col, T_CROP | T_BOLD);
+    hz = (in->step * 44100u + 32768u) >> 16;
+    s[0] = 0;
+    str_cat(fmt_u(s, hz, 0), " HZ ADPCM");
+    g_text(228 - g_text_w(s), 59, s, C_FAINT, T_CROP);
+    for (x = 0; x < 216u; x++) {
+        int32_t h = spu_pk[x] * 26 / 64;
+        uint16_t c = x == ph || x + 1u == ph ? C_WHITE : x >= lx ? g_mix(C_BG2, col, 200) : g_mix(C_BG2, col, 110);
+        g_rect(12 + (int32_t)x, 106 - h, 1, h * 2 + 1, c);
+    }
+    g_rect(12, 106, 216, 1, C_RULE);
+    if (lx < 216u) {                            /* the loop: where the flags send the voice back */
+        g_rect(12 + (int32_t)lx, 78, 1, 56, C_GOLD);
+        g_text(15 + (int32_t)lx, 76, "LOOP", C_GOLD, T_CROP);
+    } else
+        g_text(190, 76, TR("1 COUP", "ONE-SHOT", "1 GOLPE"), C_GOLD, T_CROP);
+    for (i = 0; i < SPU_NV; i++) {
+        int lit = spv[t][i].on;
+        on += lit != 0;
+        g_rect(12 + (int32_t)i * 9, 128, 7, 7, lit ? (spv[t][i].follow ? C_WHITE : col) : C_RULE);
+    }
+    s[0] = 0;
+    str_cat(fmt_u(str_cat(s, "VOX "), on, 0), "/4");
+    g_text(52, 124, s, C_MID, T_CROP);
+    s[0] = 0;
+    str_cat(fmt_u(s, in->nblk, 0), " BLK");
+    g_text(228 - g_text_w(s), 124, s, C_FAINT, T_CROP);
+}
+
 static void draw_smp(uint32_t t, uint16_t col, int edit)
 {
     const int8_t *p = prj.snd[t].p;
@@ -1047,15 +1139,17 @@ static void draw_sound(void)
     if (g_vis(40, 102)) {
         g_rect(0, 40, 240, 104, C_BG);           /* (to the cards at 144: no row left unpainted) */
         if (sp == SP_SON1) {                    /* the engines: the factory sound's (PRESETS), or ARP + PRESETS (FM: one track only) */
-            static const char *const E3[LANG_N][E_N] = {{"CAR", "OND", "BRU", "FM", "KIT", "SMP"},
-                                                         {"PUL", "WAV", "NOI", "FM", "KIT", "SMP"},
-                                                         {"PUL", "OND", "RUI", "FM", "KIT", "SMP"}};
-            for (i = 0; i < E_N; i++) {
-                int32_t x = 4 + (int32_t)i * 39;
+            static const char *const E3[LANG_N][E_N] = {{"CAR", "OND", "BRU", "FM", "KIT", "SMP", "SPU"},
+                                                         {"PUL", "WAV", "NOI", "FM", "KIT", "SMP", "SPU"},
+                                                         {"PUL", "OND", "RUI", "FM", "KIT", "SMP", "SPU"}};
+            int32_t x = 4;
+            for (i = 0; i < E_N; i++) {         /* (seven: the one on shows its name, the others their icon) */
                 int on = i == e, off = i == E_FM && !fm_free(t);
-                g_rrect(x, 41, 37, 14, on ? col : C_BG2);
-                g_icon(x + 3, 44, ENGINE_ICON[i], on ? C_INK : off ? C_RULE : col, 1);
-                g_text(x + 13, 41, E3[lang][i], on ? C_INK : off ? C_RULE : C_TXT, T_CROP | (on ? T_BOLD : 0));
+                int32_t w = on ? 44 : 28;
+                g_rrect(x, 41, w - 2, 14, on ? col : C_BG2);
+                g_icon(x + (on ? 3 : 9), 44, ENGINE_ICON[i], on ? C_INK : off ? C_RULE : col, 1);
+                if (on) g_text(x + 14, 41, E3[lang][i], C_INK, T_CROP | T_BOLD);
+                x += w;
             }
         } else {                                /* the page's name, and where it is among them: EDIT goes round */
             uint8_t gl[8];
@@ -1131,6 +1225,8 @@ static void draw_sound(void)
             g_text(150, 78, pd_value(&PDESC[e][P_SHAPE], p[P_SHAPE]), C_TXT, T_CROP | T_BOLD);
         } else if (e == E_FM)
             draw_fm(12, 60, t, col, sp);
+        else if (e == E_SPU)
+            draw_spu(t, col);
         else if (e == E_KIT) {
             for (i = 0; i < 16u; i++) {
                 int32_t x = 8 + (int32_t)(i % 8u) * 28, y = 60 + (int32_t)(i / 8u) * 40;
@@ -1453,7 +1549,7 @@ static void draw_send(void)
         hint(1, CH[lang][1], "", s);
         fmt_u(s, (uint32_t)p[P_VERB], 0);
         hint(2, CH[lang][2], "", s);
-        hint_none(3);
+        hint(3, TR("SALLE SPU", "SPU ROOM", "SALA SPU"), "", RVB[rvb_preset()].name);
     }
 }
 
@@ -1479,9 +1575,9 @@ static void draw_tools(void)
 static void draw_first(void)                    /* an empty song on TRACKS: three steps, until the first note */
 {
     static const char *const L[LANG_N][4] = {
-        {"KAWA - MORCEAU VIDE", "1. REC  2. JOUE LES TOUCHES", "3. PLAY POUR ECOUTER", "HOME TENU: AIDE"},
-        {"KAWA - EMPTY SONG", "1. REC  2. PLAY THE KEYS", "3. PLAY TO LISTEN", "HOME HELD: HELP"},
-        {"KAWA - CANCION VACIA", "1. REC  2. TOCA LAS TECLAS", "3. PLAY PARA ESCUCHAR", "HOME PULSADO: AYUDA"}};
+        {"GEARFRAME - MORCEAU VIDE", "1. REC  2. JOUE LES TOUCHES", "3. PLAY POUR ECOUTER", "HOME TENU: AIDE"},
+        {"GEARFRAME - EMPTY SONG", "1. REC  2. PLAY THE KEYS", "3. PLAY TO LISTEN", "HOME HELD: HELP"},
+        {"GEARFRAME - CANCION VACIA", "1. REC  2. TOCA LAS TECLAS", "3. PLAY PARA ESCUCHAR", "HOME PULSADO: AYUDA"}};
     uint32_t i;
     if (page != PG_TRACK || !song_empty || rec || sq_play || tools_open || !g_vis(70, 92)) return;
     g_rrect(8, 72, 224, 88, C_GOLD);
@@ -1852,7 +1948,7 @@ static void draw_opt(void)
         if (clk_in && clk_in_tick) { str_cat(c, " "); fmt_u(c + str_len(c), bpm_now(), 0); }
         g_text_c(120, 184, c, set.clock ? KNOB_COL[2] : C_FAINT, T_CROP);
     }
-    g_text_c(120, 197, "KAWA " APP_VER " BETA by Omnipotard", C_MID, T_CROP);
+    g_text_c(120, 197, "GEARFRAME " APP_VER " BETA, ON KAWA", C_MID, T_CROP);
     {                                           /* the audio interrupt's load (for the beta's testers) */
         char c[32];
         c[0] = 0;
@@ -1980,13 +2076,13 @@ static void draw_help(void)
     hint(3, "", "", "");
 }
 
-/* ---- the boot: Omnipotard's dog in 32 bits (kawa_photo.h), notes out of his headphones, stars that twinkle */
 static void g_text_sh(int32_t x, int32_t y, const char *s, uint16_t c, uint32_t mode)   /* with a shadow */
 {
     g_text(x + 1, y + 1, s, RGB(8, 6, 20), mode);
     g_text(x, y, s, c, mode);
 }
-/* ---- GENRE (Wonderblue-OS): the genre, its blurb and tempo, the progression, what OCT+ will do */
+/* ---- STYLE (GEARFRAME, after Wonderblue-OS's GENRE): the style, its blurb and tempo, the progression, its SPU sounds
+ * and room, what OCT+ will do */
 static uint32_t gn_semi(uint32_t sc, int32_t deg)   /* the semitones of a scale degree over the root */
 {
     uint32_t mask = SCALES[sc % 12u].mask, n = 0, oct = 0;
@@ -2018,7 +2114,7 @@ static void draw_genre(void)
     if (!g_vis(20, 204)) return;
     g_rect(0, 20, 240, 204, C_BG);
     s[0] = 0;
-    str_cat(fmt_u(str_cat(s, "GENRE "), gn_genre + 1u, 2), "/");
+    str_cat(fmt_u(str_cat(s, TR("STYLE ", "STYLE ", "ESTILO ")), gn_genre + 1u, 2), "/");
     fmt_u(str_cat(s, ""), NGENRE, 0);
     g_text(8, 26, s, C_FAINT, T_CROP);
     g_rect(0, 42, 240, 2, pc);
@@ -2041,15 +2137,21 @@ static void draw_genre(void)
         str_cat(s, n);
     }
     g_text(8, 136, s, C_TXT, T_CROP);
+    s[0] = 0;                                   /* the SPU's: the keys, their partner, the room */
+    str_cat(str_cat(str_cat(s, g->key_snd), " + "), g->syn_snd);
+    g_text(8, 152, s, C_MID, T_CROP);
+    s[0] = 0;
+    str_cat(str_cat(s, "SPU ROOM "), RVB[g->rvb % RVB_NP].name);
+    g_text(8, 166, s, C_FAINT, T_CROP);
     if (gn_armed && fm1_ms - gn_armed_ms < 3000u) {
-        g_rrect(6, 162, 228, 22, C_REC);
-        g_text_c(120, 165, TR("OCT+ ENCORE: NOUVEAU MORCEAU", "OCT+ AGAIN: A NEW SONG", "OCT+ OTRA VEZ: CANCION NUEVA"), C_WHITE, T_BOLD | T_CROP);
+        g_rrect(6, 184, 228, 22, C_REC);
+        g_text_c(120, 187, TR("OCT+ ENCORE: NOUVEAU MORCEAU", "OCT+ AGAIN: A NEW PIECE", "OCT+ OTRA VEZ: PIEZA NUEVA"), C_WHITE, T_BOLD | T_CROP);
     } else {
-        g_text(8, 160, TR("OCT+ DEUX FOIS: LE MORCEAU", "OCT+ TWICE: WRITE THE SONG", "OCT+ DOS VECES: LA CANCION"), C_GO, T_CROP);
-        g_text(8, 176, TR("REMPLACE LES MOTIFS 1-8", "REPLACES PATTERNS 1-8", "REEMPLAZA PATRONES 1-8"), C_FAINT, T_CROP);
+        g_text(8, 184, TR("OCT+ DEUX FOIS: LE MORCEAU", "OCT+ TWICE: WRITE THE PIECE", "OCT+ DOS VECES: LA PIEZA"), C_GO, T_CROP);
+        g_text(8, 200, TR("REMPLACE LES MOTIFS 1-8", "REPLACES PATTERNS 1-8", "REEMPLAZA PATRONES 1-8"), C_FAINT, T_CROP);
     }
     fmt_u(n, gn_energy, 0);
-    hint(0, TR("GENRE", "GENRE", "GENERO"), TR("GEN", "GEN", "GEN"), g->name);
+    hint(0, TR("STYLE", "STYLE", "ESTILO"), TR("STY", "STY", "EST"), g->name);
     hint(1, TR("ACCORDS", "CHORDS", "ACORDES"), TR("ACC", "CHD", "ACO"), pr->name);
     hint(2, TR("ENERGIE", "ENERGY", "ENERGIA"), TR("NRG", "NRG", "ENE"), n);
     hint_none(3);
@@ -2071,29 +2173,52 @@ static void genre_oct(int32_t d)
     gn_armed_ms = fm1_ms;
 }
 
+/* ---- the boot (GEARFRAME): the frame's blueprint scanned in, line by line, then its systems come up one after the
+ * other, as a mech's HUD would show them; it waits for a key */
 static void draw_boot(void)
 {
-    uint32_t t = fm1_ms - boot_ms, i;
-    static const uint16_t COL[6] = {RGB(240, 160, 48), RGB(214, 128, 52), RGB(236, 186, 96), RGB(96, 146, 255),
-                                    RGB(60, 201, 182), RGB(130, 176, 255)};
-    g_rect(0, 0, 240, 240, RGB(18, 18, 18));
-    for (i = 0; i < 24u; i++) {                 /* six tracker columns, four rows each, lighting up in turn */
-        uint32_t c = i % 6u, r = i / 6u, on = ((t / 120u) + c * 3u + r) % 9u < 3u;
-        int32_t x = 12 + (int32_t)c * 37, y = 104 + (int32_t)r * 22;
-        g_rect(x, y, 32, 16, on ? COL[c] : g_mix(RGB(30, 30, 30), COL[c], 40));
+    static const char *const LOG[6][2] = {{"SPU", "24 VOX"}, {"ADPCM", "16 INS"}, {"GAUSS INTERP", "OK"},
+                                          {"REVERB", ""}, {"SEQUENCER", "6 TRK"}, {"FRAME LINK", "OK"}};
+    uint32_t t = fm1_ms - boot_ms, i, hud = g_hud;
+    int32_t scan = (int32_t)(t * 240u / 900u);
+    char s[24];
+    if (scan > 240) scan = 240;
+    g_hud = 1;                                  /* (the blueprint, whatever the theme) */
+    g_rect(0, 0, 240, scan, C_BG);
+    g_hud = (uint8_t)hud;
+    if (scan < 240) {
+        g_rect(0, scan, 240, 240 - scan, RGB(4, 6, 8));
+        g_rect(0, scan, 240, 1, C_GOLD);
+        g_blend(0, scan - 6, 240, 6, C_GOLD, 40);
     }
-    g_rect(0, 104 + (int32_t)(((t / 120u) % 4u) * 22u) - 3, 240, 1, RGB(240, 160, 48));
-    g_rect(0, 0, 240, 82, RGB(14, 14, 14));
-    g_rect(0, 0, 240, 3, RGB(60, 120, 255));
-    g_text_sh(233 - g_text_w("WONDERBLUE-OS"), 10, "WONDERBLUE-OS", RGB(96, 146, 255), T_BOLD);
-    g_text_sh(233 - g_text_w("WND-1 Genre Tracker"), 30, "WND-1 Genre Tracker", C_GOLD, T_BOLD);
-    g_text_sh(233 - g_text_w("on KAWA by Omnipotard"), 50, "on KAWA by Omnipotard", C_TXT, 0);
+    g_rect(0, 0, 240, 3, C_GOLD);               /* the title plate */
+    g_rrect(4, 8, 164, 62, C_BG2);
+    g_rect(4, 8, 3, 62, C_GOLD);
+    g_text2(12, 12, "GEAR", C_GOLD);
+    g_text2(76, 12, "FRAME", C_TXT);
+    g_text(12, 40, "PS1 OST TRACKER", C_MID, T_CROP | T_BOLD);
+    g_text(12, 54, "SPU-01  FM-1", C_FAINT, T_CROP);
+    if (t > 700u) {                             /* the systems, one every 160 ms */
+        uint32_t n = (t - 700u) / 160u;
+        g_rrect(4, 118, 132, 100, C_BG2);
+        g_rect(4, 118, 132, 2, C_GOLD);
+        for (i = 0; i < 6u && i < n; i++) {
+            int32_t y = 124 + (int32_t)i * 15;
+            const char *v = i == 3u ? RVB[rvb_preset()].name : LOG[i][1];
+            g_text(8, y, LOG[i][0], C_TXT, T_CROP);
+            g_text(132 - g_text_w(v), y, v, i + 1u == n && ((t / 80u) & 1u) ? C_WHITE : C_GO, T_CROP | T_BOLD);
+        }
+    }
     g_rrect(4, 224, 44, 14, C_REC);
     g_text(8, 224, "BETA", C_WHITE, T_CROP | T_BOLD);
-    g_text_sh(236 - g_text_w("V" APP_VER), 226, "V" APP_VER, C_TXT, T_CROP);
-    if (t > 600u && ((t / 550u) & 1u)) {        /* it waits for you: a key, a button or a knob */
+    s[0] = 0;
+    str_cat(s, "V" APP_VER);
+    g_text(236 - g_text_w(s), 226, s, C_TXT, T_CROP);
+    g_text(56, 226, "ON KAWA", C_FAINT, T_CROP);
+    if (t > 1900u && ((t / 550u) & 1u)) {       /* it waits for you: a key, a button or a knob */
         const char *m = TR("APPUIE SUR UNE TOUCHE", "PRESS ANY KEY", "PULSA UNA TECLA");
-        g_text_sh(120 - g_text_w(m) / 2, 204, m, C_WHITE, T_CROP | T_BOLD);
+        g_rrect(120 - g_text_w(m) / 2 - 8, 200, g_text_w(m) + 16, 18, C_GOLD);
+        g_text_c(120, 201, m, C_INK, T_CROP | T_BOLD);
     }
 }
 
@@ -2566,6 +2691,10 @@ static void knob(uint32_t i, int32_t d)
         }
         else if (i == 1u) param_turn(t, P_ECHO, d);
         else if (i == 2u) param_turn(t, P_VERB, d);
+        else {                                  /* the SPU reverb's preset, for the song */
+            int32_t k = clampi((int32_t)rvb_preset() + d, 0, (int32_t)RVB_NP - 1);
+            if (k != (int32_t)rvb_preset()) { prj.grv.pad[0] = (uint8_t)k; touched(); }
+        }
         break;
     case PG_FX:
         if (i == 0u) { fx_bank = (uint8_t)clampi(fx_bank + d, 0, 1); lfx_keys = 0; }

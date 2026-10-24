@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# Wonderblue-OS: build the installable package (.fwsc) with JieLi's toolchain, the browser emulator, and run the
-# simulator over the GENRE page. The package and the emulator are attached to the run as a download ("wnd-1").
+# GEARFRAME: build the installable package (.fwsc) with JieLi's toolchain and the browser emulator, run the tests on the
+# computer (the SPU engine and reverb, the style generator, KAWA's own) and the simulator over the STYLE page. The
+# build's figures (image, RAM, pool) are written as annotations. The package and the emulator are attached to the run
+# as a download ("gearframe").
 name: build
 on:
   push:
@@ -17,9 +19,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install Pillow fonttools
-      - name: simulator (the GENRE page, a song, playing it)
+      - name: tests (SPU, styles, features, formats, the panel, the kits)
         working-directory: source
-        run: sh tests/run_host.sh tests/genre.txt
+        run: |
+          for t in spu style features format ui kits; do
+            sh tests/run_${t}_test.sh > t.log 2>&1 || { tail -30 t.log; echo "::error::tests/run_${t}_test.sh failed"; exit 1; }
+            tail -2 t.log
+          done
+      - name: simulator (the boot, the STYLE page, a piece, the SPU's pages, the themes)
+        working-directory: source
+        run: sh tests/run_host.sh tests/style.txt
       - name: emulator
         working-directory: source
         run: APP_VER=0.1 sh web/make_emulator.sh
@@ -45,11 +54,14 @@ jobs:
           fi
       - name: firmware package
         working-directory: source
-        run: ./build.sh --release 0.1
+        run: |
+          set -o pipefail
+          ./build.sh --release 0.1 2>&1 | tee build.log || { tail -15 build.log | sed 's/^/::error::/'; exit 1; }
+          grep -E "image|RAM|pool|loader|package" build.log | sed 's/^ */::notice::/' || true
       - uses: actions/upload-artifact@v4
         with:
-          name: wnd-1
+          name: gearframe
           path: |
-            source/build/wnd-1-0.1.fwsc
+            source/build/gearframe-0.1.fwsc
             emulator/index.html
           if-no-files-found: error

@@ -1,9 +1,36 @@
-# Building KAWA
+# Building GEARFRAME (and KAWA)
 
 [README](../README.md) · [Français](../README.fr.md) · [Español](../README.es.md)
 
 Everything here is for changing KAWA itself. To put KAWA on an FM-1, see the README: the ready package is in
 [`../install/`](../install/). Run every command below from this `source/` folder.
+
+## GEARFRAME
+
+GEARFRAME is KAWA 0.5 (by way of Wonderblue-OS) with an SPU engine, the SPU's reverb, a style generator and a HUD.
+What follows is KAWA's guide, with GEARFRAME's differences here:
+
+- **Identity**: `./build.sh` makes `build/gearframe.fwsc`, identity `FM-1_980`; `./build.sh --release 0.1` makes
+  `build/gearframe-0.1.fwsc`, identity `FM-1_98Y` for 0.Y (no one else uses 98: KAWA 95/96, Wonderblue-OS 92, Felucca
+  9XY for its X.Y, Dinghy 99). GitHub Actions (`.github/workflows/build.yml`) builds the package, runs the tests and
+  writes the build's figures (image, RAM, pool) as annotations of the run.
+- **The SPU engine** (`firmware/src/gear_spu.c`, engine 6, `E_SPU`): four voices a track, the instruments of
+  `firmware/gen/gear_spu.h` (`tools/gen_spu.py`; `--wav DIR` writes them decoded, to listen to). Its knobs: INSTR, CHORD,
+  TUNE, DETUNE, INTERP (GAUSS, LINEAR, RAW), VIBRATO, CRUSH, TONE. A cell's ARP plays its chord at once on an SPU track.
+  The load governor drops it to LINEAR (level 2), then lets go of the released voices (level 3).
+- **The reverb** (`kawa_fx.c`): the SPU's (psx-spx's formula, its seven presets), at 22050 Hz, in a 61 KiB work area
+  in the pool (SPACE ECHO's, the largest). To make room, the echo runs at 22050 Hz too (its buffer is half KAWA's).
+  The song's room is `prj.grv.pad[0]` (0 HALL .. 6 SPACE ECHO; a byte KAWA leaves as padding, so the format stays 5:
+  a KAWA 0.5 project loads with HALL; `prj_sanitize` brings a wrong value back to 0).
+- **The styles** (`firmware/src/gear_style.c`): 22, each its tempo range, scale, progression, lanes, sounds (by their
+  English names: `tests/style_test.c` checks each one is an SPU factory sound) and reverb room.
+- **The HUD** (`kawa_gfx.c`): in a HUD theme (XENO, ORBITAL, RAVEN) `g_rect` paints `C_BG` as the blueprint
+  (`firmware/gen/gear_mech.h`, `tools/gen_mech.py`) and `g_rrect` / `g_frame` cut chamfers. The boot is `draw_boot`.
+- **New tests**: `sh tests/run_spu_test.sh` (every SPU sound: pitch within 10 cents, level, DC, its release ends, the
+  voices; every instrument at the ends of every knob; each reverb room's decay, and loud noise into it), `sh
+  tests/run_style_test.sh` (every style written, played 24 s, its mix measured; `build/style/*.wav`), and the
+  simulator's `tests/style.txt` (the boot, the STYLE page, the SPU's pages, the themes).
+- A GEARFRAME project loaded in KAWA plays its SPU tracks as PULSE (KAWA's `prj_sanitize`: an unknown engine).
 
 ## On a computer, no FM-1: the simulator
 

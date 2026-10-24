@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Wonderblue-OS (WND-1): KAWA with a genre generator, for the M-VAVE FM-1. KAWA: a pocket tracker for the M-VAVE FM-1, for composing in any style (a tracker: time runs down the rows).
+/* GEARFRAME: a tracker for the M-VAVE FM-1 for writing the music of a PlayStation game: the SPU's ADPCM instruments
+ * and its reverb, a style generator, a mech's HUD. Built on Wonderblue-OS and on KAWA, a pocket tracker for the M-VAVE
+ * FM-1 by Omnipotard (a tracker: time runs down the rows).
  *
  * Six tracks, each with its engine (pulse, 4-bit wave, noise, 6-operator FM on one track, a synthesised drum
  * kit, a sample cut in 16 slices or played as notes),
@@ -21,9 +23,9 @@
  *   kawa_ui.c     the pages, the panel, app_main
  *   kawa_sysex.c  the user's samples over USB-MIDI (SysEx)
  * Rules of the chip (docs/RULES.md): integers only, no 64-bit division, the audio interrupt short. */
-#define APP_NAME "WONDERBLUE"
+#define APP_NAME "GEARFRAME"
 #ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_920"                   /* Wonderblue-OS's identity, also outside build.py (it passes FM-1_92N) */
+#define FELUCCA_ID "FM-1_980"                   /* GEARFRAME's identity, also outside build.py (it passes FM-1_98N) */
 #endif
 #if !defined(DINGHY_HOST) && !defined(KAWA_WASM)  /* (the host builds keep the store in memory) */
 #ifndef STORE_LO
@@ -35,7 +37,8 @@
 #include "kawa_tables.h"
 #include "kawa_breaks.h"
 #include "kawa_art.h"
-#include "kawa_photo.h"
+#include "gear_spu.h"
+#include "gear_mech.h"
 #include "kawa_fm.h"
 #include "kawa_kits.h"
 #include "kawa_fonts.h"
@@ -45,7 +48,7 @@
 #include "kawa_fx.c"
 #include "kawa_seq.c"
 #include "kawa_edit.c"
-#include "wnd_genre.c"
+#include "gear_style.c"
 #include "kawa_gfx.c"
 #include "kawa_ui.c"
 #include "kawa_sysex.c"

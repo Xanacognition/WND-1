@@ -11,7 +11,7 @@
 
 #define CAPN 32768u                             /* capture: frames (0.74 s), L | R << 16 */
 #define CAPM (CAPN - 1u)
-#define ECHON 32768u
+#define ECHON 16384u                            /* (at 22050 Hz: 0.74 s) */
 static uint32_t cap[CAPN] POOL;
 static int16_t echo_buf[ECHON] POOL;
 static uint32_t afr;                            /* frames since boot */
@@ -313,69 +313,155 @@ static void fx_live(int32_t *L, int32_t *R, int32_t *E)
     }
 }
 
-/* ---- the reverb: four combs and two all-pass filters a side (Freeverb's), 14 KiB */
-#define RV_C0 1116u
-#define RV_C1 1188u
-#define RV_C2 1277u
-#define RV_C3 1356u
-#define RV_AL0 556u
-#define RV_AL1 441u
-#define RV_AR0 579u
-#define RV_AR1 464u
-static int16_t rv_buf[RV_C0 + RV_C1 + RV_C2 + RV_C3 + RV_AL0 + RV_AL1 + RV_AR0 + RV_AR1];
-static const uint16_t RV_LEN[8] = {RV_C0, RV_C1, RV_C2, RV_C3, RV_AL0, RV_AL1, RV_AR0, RV_AR1};
-static uint16_t rv_pos[8];
-static int32_t rv_lp[4];
-static int32_t rv_room = 28000, rv_damp = 9000;  /* feedback 0.85, damping 0.27 (Q15) */
+/* ---- the reverb: the PlayStation SPU's (psx-spx, "SPU Reverb Formula"), the presets of its library ("SPU Reverb
+ * Examples"). A work area of 16-bit samples that the reverb walks through at 22050 Hz, one sample a tick: two
+ * reflections a side (the same side, the other side), four combs that read them back, two all-pass filters.
+ * The addresses (in the presets: 8-byte units, here samples) are from where it is now; everything wraps in the
+ * area. KNOB 4 on SENDS picks the preset, for the song (prj.grv.pad[0]). The tick is every other frame: its input
+ * is the mean of two frames, its output is drawn in a line between two ticks (the SPU's 39-tap filter would cost
+ * more than the whole reverb) */
+#define RVB_NP 7u
+enum { RV_DAPF1, RV_DAPF2, RV_VIIR, RV_VCOMB1, RV_VCOMB2, RV_VCOMB3, RV_VCOMB4, RV_VWALL, RV_VAPF1, RV_VAPF2,
+       RV_MLSAME, RV_MRSAME, RV_MLCOMB1, RV_MRCOMB1, RV_MLCOMB2, RV_MRCOMB2, RV_DLSAME, RV_DRSAME, RV_MLDIFF, RV_MRDIFF,
+       RV_MLCOMB3, RV_MRCOMB3, RV_MLCOMB4, RV_MRCOMB4, RV_DLDIFF, RV_DRDIFF, RV_MLAPF1, RV_MRAPF1, RV_MLAPF2, RV_MRAPF2,
+       RV_VLIN, RV_VRIN };
+typedef struct {
+    const char *name;
+    uint32_t bytes;                             /* the work area */
+    uint16_t r[32];                             /* 1F801DC0h..1F801DFEh */
+} rvb_preset_t;
+static const rvb_preset_t RVB[RVB_NP] = {
+    {"HALL", 0xADE0u, {0x01A5, 0x0139, 0x6000, 0x5000, 0x4C00, 0xB800, 0xBC00, 0xC000, 0x6000, 0x5C00, 0x15BA, 0x11BB,
+                       0x14C2, 0x10BD, 0x11BC, 0x0DC1, 0x11C0, 0x0DC3, 0x0DC0, 0x09C1, 0x0BC4, 0x07C1, 0x0A00, 0x06CD,
+                       0x09C2, 0x05C1, 0x05C0, 0x041A, 0x0274, 0x013A, 0x8000, 0x8000}},
+    {"STUDIO L", 0x6FE0u, {0x00E3, 0x00A9, 0x6F60, 0x4FA8, 0xBCE0, 0x4510, 0xBEF0, 0xA680, 0x5680, 0x52C0, 0x0DFB, 0x0B58,
+                           0x0D09, 0x0A3C, 0x0BD9, 0x0973, 0x0B59, 0x08DA, 0x08D9, 0x05E9, 0x07EC, 0x04B0, 0x06EF, 0x03D2,
+                           0x05EA, 0x031D, 0x031C, 0x0238, 0x0154, 0x00AA, 0x8000, 0x8000}},
+    {"STUDIO M", 0x4840u, {0x00B1, 0x007F, 0x70F0, 0x4FA8, 0xBCE0, 0x4510, 0xBEF0, 0xB4C0, 0x5280, 0x4EC0, 0x0904, 0x076B,
+                           0x0824, 0x065F, 0x07A2, 0x0616, 0x076C, 0x05ED, 0x05EC, 0x042E, 0x050F, 0x0305, 0x0462, 0x02B7,
+                           0x042F, 0x0265, 0x0264, 0x01B2, 0x0100, 0x0080, 0x8000, 0x8000}},
+    {"STUDIO S", 0x1F40u, {0x0033, 0x0025, 0x70F0, 0x4FA8, 0xBCE0, 0x4410, 0xC0F0, 0x9C00, 0x5280, 0x4EC0, 0x03E4, 0x031B,
+                           0x03A4, 0x02AF, 0x0372, 0x0266, 0x031C, 0x025D, 0x025C, 0x018E, 0x022F, 0x0135, 0x01D2, 0x00B7,
+                           0x018F, 0x00B5, 0x00B4, 0x0080, 0x004C, 0x0026, 0x8000, 0x8000}},
+    {"ROOM", 0x26C0u, {0x007D, 0x005B, 0x6D80, 0x54B8, 0xBED0, 0x0000, 0x0000, 0xBA80, 0x5800, 0x5300, 0x04D6, 0x0333,
+                       0x03F0, 0x0227, 0x0374, 0x01EF, 0x0334, 0x01B5, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+                       0x0000, 0x0000, 0x01B4, 0x0136, 0x00B8, 0x005C, 0x8000, 0x8000}},
+    {"HALF ECHO", 0x3C00u, {0x0017, 0x0013, 0x70F0, 0x4FA8, 0xBCE0, 0x4510, 0xBEF0, 0x8500, 0x5F80, 0x54C0, 0x0371, 0x02AF,
+                            0x02E5, 0x01DF, 0x02B0, 0x01D7, 0x0358, 0x026A, 0x01D6, 0x011E, 0x012D, 0x00B1, 0x011F, 0x0059,
+                            0x01A0, 0x00E3, 0x0058, 0x0040, 0x0028, 0x0014, 0x8000, 0x8000}},
+    {"SPACE ECHO", 0xF6C0u, {0x033D, 0x0231, 0x7E00, 0x5000, 0xB400, 0xB000, 0x4C00, 0xB000, 0x6000, 0x5400, 0x1ED6, 0x1A31,
+                             0x1D14, 0x183B, 0x1BC2, 0x16B2, 0x1A32, 0x15EF, 0x15EE, 0x1055, 0x1334, 0x0F2D, 0x11F6, 0x0C5D,
+                             0x1056, 0x0AE1, 0x0AE0, 0x07A2, 0x0464, 0x0232, 0x8000, 0x8000}},
+};
+#define RVB_N (0xF6C0u / 2u)                    /* samples: the largest work area (SPACE ECHO) */
+static int16_t rvb[RVB_N] POOL;
+static uint32_t rvb_n = 1, rvb_cur, rvb_clear; /* the area now (samples), where the reverb is in it, samples left to clear */
+static uint8_t rvb_of = 0xFF;                   /* the preset it is set up for */
+static int32_t rvb_v[10];                       /* the volumes, signed */
+static uint32_t rvb_a[RV_VLIN];                 /* the addresses, in samples, each in 0 .. rvb_n - 1 */
+static uint32_t rvb_m1[4];                      /* mLSAME, mRSAME, mLDIFF, mRDIFF one sample back ("-2" bytes) */
+static uint32_t rvb_ap[4];                      /* mLAPF1 - dAPF1, mRAPF1 - dAPF1, mLAPF2 - dAPF2, mRAPF2 - dAPF2 */
+static int32_t rvb_vin, rvb_l0, rvb_r0, rvb_l1, rvb_r1, rvb_x;
+static uint8_t rvb_ph;
 
-static int16_t *rv_line(uint32_t k)
+static uint8_t rvb_preset(void) { return (uint8_t)(prj.grv.pad[0] < RVB_NP ? prj.grv.pad[0] : 0u); }
+
+static void rvb_setup(uint32_t k)               /* a new preset: its registers, the area cleared bit by bit */
 {
-    uint32_t o = 0, j;
-    for (j = 0; j < k; j++)
-        o += RV_LEN[j];
-    return rv_buf + o;
-}
-static int16_t *rv_lines[8];
-static void rv_init(void)
-{
-    uint32_t k;
-    for (k = 0; k < 8u; k++)
-        rv_lines[k] = rv_line(k);
+    const rvb_preset_t *p = &RVB[k % RVB_NP];
+    uint32_t i, n = p->bytes / 2u;
+    rvb_of = (uint8_t)k;
+    rvb_n = n > RVB_N ? RVB_N : n;
+    for (i = 0; i < 10u; i++) rvb_v[i] = (int16_t)p->r[i];
+    for (i = RV_MLSAME; i < RV_VLIN; i++) rvb_a[i] = ((uint32_t)p->r[i] * 4u) % rvb_n;
+    rvb_a[RV_DAPF1] = ((uint32_t)p->r[RV_DAPF1] * 4u) % rvb_n;
+    rvb_a[RV_DAPF2] = ((uint32_t)p->r[RV_DAPF2] * 4u) % rvb_n;
+    rvb_m1[0] = (rvb_a[RV_MLSAME] + rvb_n - 1u) % rvb_n;
+    rvb_m1[1] = (rvb_a[RV_MRSAME] + rvb_n - 1u) % rvb_n;
+    rvb_m1[2] = (rvb_a[RV_MLDIFF] + rvb_n - 1u) % rvb_n;
+    rvb_m1[3] = (rvb_a[RV_MRDIFF] + rvb_n - 1u) % rvb_n;
+    rvb_ap[0] = (rvb_a[RV_MLAPF1] + rvb_n - rvb_a[RV_DAPF1]) % rvb_n;
+    rvb_ap[1] = (rvb_a[RV_MRAPF1] + rvb_n - rvb_a[RV_DAPF1]) % rvb_n;
+    rvb_ap[2] = (rvb_a[RV_MLAPF2] + rvb_n - rvb_a[RV_DAPF2]) % rvb_n;
+    rvb_ap[3] = (rvb_a[RV_MRAPF2] + rvb_n - rvb_a[RV_DAPF2]) % rvb_n;
+    rvb_vin = (int16_t)p->r[RV_VLIN];
+    rvb_cur = 0;
+    rvb_clear = RVB_N;
 }
 
-static int32_t rv_allpass(uint32_t k, int32_t x)
+static int32_t rv_rd(uint32_t a)
 {
-    int16_t *b = rv_lines[k];
-    uint32_t p = rv_pos[k];
-    int32_t d = b[p], y = d - x;
-    b[p] = (int16_t)clampi(x + (d >> 1), -32767, 32767);
-    if (++p >= RV_LEN[k]) p = 0;
-    rv_pos[k] = (uint16_t)p;
-    return y;
+    a += rvb_cur;
+    return rvb[a >= rvb_n ? a - rvb_n : a];
+}
+static void rv_wr(uint32_t a, int32_t v)
+{
+    a += rvb_cur;
+    rvb[a >= rvb_n ? a - rvb_n : a] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+}
+#define RVM(a, b) ((int32_t)(((int64_t)(a) * (b)) >> 15))   /* (64-bit: the sums before a product pass 16 bits) */
+
+static void rvb_tick(int32_t in, int32_t *lo, int32_t *ro)   /* one 22050 Hz tick of the SPU's reverb */
+{
+    int32_t lin = RVM(in, rvb_vin), rin = lin, l, r, m;
+    const int32_t iir = rvb_v[RV_VIIR], wall = rvb_v[RV_VWALL];
+    m = rv_rd(rvb_m1[0]);                       /* the same side: left to left, right to right */
+    rv_wr(rvb_a[RV_MLSAME], RVM(lin + RVM(rv_rd(rvb_a[RV_DLSAME]), wall) - m, iir) + m);
+    m = rv_rd(rvb_m1[1]);
+    rv_wr(rvb_a[RV_MRSAME], RVM(rin + RVM(rv_rd(rvb_a[RV_DRSAME]), wall) - m, iir) + m);
+    m = rv_rd(rvb_m1[2]);                       /* the other side */
+    rv_wr(rvb_a[RV_MLDIFF], RVM(lin + RVM(rv_rd(rvb_a[RV_DRDIFF]), wall) - m, iir) + m);
+    m = rv_rd(rvb_m1[3]);
+    rv_wr(rvb_a[RV_MRDIFF], RVM(rin + RVM(rv_rd(rvb_a[RV_DLDIFF]), wall) - m, iir) + m);
+    l = RVM(rvb_v[RV_VCOMB1], rv_rd(rvb_a[RV_MLCOMB1])) + RVM(rvb_v[RV_VCOMB2], rv_rd(rvb_a[RV_MLCOMB2])) +
+        RVM(rvb_v[RV_VCOMB3], rv_rd(rvb_a[RV_MLCOMB3])) + RVM(rvb_v[RV_VCOMB4], rv_rd(rvb_a[RV_MLCOMB4]));
+    r = RVM(rvb_v[RV_VCOMB1], rv_rd(rvb_a[RV_MRCOMB1])) + RVM(rvb_v[RV_VCOMB2], rv_rd(rvb_a[RV_MRCOMB2])) +
+        RVM(rvb_v[RV_VCOMB3], rv_rd(rvb_a[RV_MRCOMB3])) + RVM(rvb_v[RV_VCOMB4], rv_rd(rvb_a[RV_MRCOMB4]));
+    m = rv_rd(rvb_ap[0]);                       /* the all-pass filters */
+    l -= RVM(rvb_v[RV_VAPF1], m);
+    rv_wr(rvb_a[RV_MLAPF1], l);
+    l = RVM(clampi(l, -32768, 32767), rvb_v[RV_VAPF1]) + m;
+    m = rv_rd(rvb_ap[1]);
+    r -= RVM(rvb_v[RV_VAPF1], m);
+    rv_wr(rvb_a[RV_MRAPF1], r);
+    r = RVM(clampi(r, -32768, 32767), rvb_v[RV_VAPF1]) + m;
+    m = rv_rd(rvb_ap[2]);
+    l -= RVM(rvb_v[RV_VAPF2], m);
+    rv_wr(rvb_a[RV_MLAPF2], l);
+    l = RVM(clampi(l, -32768, 32767), rvb_v[RV_VAPF2]) + m;
+    m = rv_rd(rvb_ap[3]);
+    r -= RVM(rvb_v[RV_VAPF2], m);
+    rv_wr(rvb_a[RV_MRAPF2], r);
+    r = RVM(clampi(r, -32768, 32767), rvb_v[RV_VAPF2]) + m;
+    if (++rvb_cur >= rvb_n) rvb_cur = 0;
+    *lo = clampi(l, -32768, 32767);
+    *ro = clampi(r, -32768, 32767);
 }
 
 static void reverb_chunk(const int32_t *in, int32_t *L, int32_t *R)
 {
-    uint32_t i, k;
-    if (!rv_lines[0])
-        rv_init();
+    uint32_t i, k = rvb_preset();
+    if (k != rvb_of) rvb_setup(k);
+    if (rvb_clear) {                            /* (a new preset: its area is cleared first, 2048 samples a chunk) */
+        uint32_t n = rvb_clear > 2048u ? 2048u : rvb_clear;
+        rvb_clear -= n;
+        while (n--) rvb[rvb_clear + n] = 0;
+        rvb_l0 = rvb_r0 = rvb_l1 = rvb_r1 = 0;
+        return;
+    }
     for (i = 0; i < CHUNK; i++) {
-        int32_t x = in[i] >> 2, s = 0, l, r;
-        for (k = 0; k < 4u; k++) {
-            int16_t *b = rv_lines[k];
-            uint32_t p = rv_pos[k];
-            int32_t d = b[p];
-            rv_lp[k] += ((d - rv_lp[k]) * (32767 - rv_damp)) >> 15;
-            b[p] = (int16_t)clampi(x + ((rv_lp[k] * rv_room) >> 15), -32767, 32767);
-            if (++p >= RV_LEN[k]) p = 0;
-            rv_pos[k] = (uint16_t)p;
-            s += d;
+        int32_t x = in[i] >> 2;                 /* (a quarter in, four times out: headroom in its 16-bit area, and
+                                                 * about the level of KAWA's reverb) */
+        if (!rvb_ph) {
+            rvb_x = x;
+        } else {
+            rvb_l0 = rvb_l1;
+            rvb_r0 = rvb_r1;
+            rvb_tick(clampi((rvb_x + x) >> 1, -32768, 32767), &rvb_l1, &rvb_r1);
         }
-        s >>= 1;
-        l = rv_allpass(5, rv_allpass(4, s));
-        r = rv_allpass(7, rv_allpass(6, s));
-        L[i] += l;
-        R[i] += r;
+        rvb_ph ^= 1u;                           /* (the output: a line from the last tick to this one) */
+        L[i] += (rvb_ph ? rvb_l0 + ((rvb_l1 - rvb_l0) >> 1) : rvb_l1) * 4;
+        R[i] += (rvb_ph ? rvb_r0 + ((rvb_r1 - rvb_r0) >> 1) : rvb_r1) * 4;
     }
 }
 
@@ -411,20 +497,22 @@ static void limiter(int32_t *L, int32_t *R)
 static fxs_t mfx_l, mfx_r;
 static void fx_master(int32_t *L, int32_t *R, const int32_t *E, const int32_t *V)
 {
-    uint32_t i, edly = g_rowlen * 3u;
+    uint32_t i, edly = (g_rowlen * 3u) >> 1;   /* (the echo runs at 22050 Hz, as the SPU's reverb: its line is half) */
     int32_t fb = lfx_on >> LF_ECHO & 1u ? 22000 : 13000;
     if (edly >= ECHON - 16u)
-        edly = g_rowlen * 2u;
+        edly = g_rowlen;
     if (edly >= ECHON - 16u)
         edly = ECHON - 16u;
-    for (i = 0; i < CHUNK && cpu_shed < 2u; i++) {
-        int32_t e = echo_buf[(echo_w - edly) & (ECHON - 1u)], in;
-        echo_lp += ((e - echo_lp) * 12000) >> 15;
-        in = E[i] + ((echo_lp * fb) >> 15);
+    for (i = 0; i + 1u < CHUNK && cpu_shed < 2u; i += 2u) {
+        int32_t e = echo_buf[(echo_w - edly) & (ECHON - 1u)], in, last = echo_lp;
+        echo_lp += ((e - echo_lp) * 18000) >> 15;
+        in = ((E[i] + E[i + 1u]) >> 1) + ((echo_lp * fb) >> 15);
         echo_buf[echo_w & (ECHON - 1u)] = (int16_t)clampi(in, -32767, 32767);
         echo_w++;
-        L[i] += echo_lp;
-        R[i] += echo_lp;
+        L[i] += (last + echo_lp) >> 1;
+        R[i] += (last + echo_lp) >> 1;
+        L[i + 1u] += echo_lp;
+        R[i + 1u] += echo_lp;
     }
     if (cpu_shed < 1u)                          /* (the load governor: kawa_seq.c) */
         reverb_chunk(V, L, R);

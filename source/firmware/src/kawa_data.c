@@ -12,37 +12,56 @@ static const char *const LANG_CODE[LANG_N] = {"FR", "EN", "ES"};
 /* ---- engines: each of the eight tracks plays one, picked with its sound (SOUND, PRESETS) */
 #define NUSR 4u                                /* the user's sample slots (kawa_core.c) */
 #define NTRK 6u                                /* six tracks: the FM-1's audio interrupt keeps a wide margin */
-enum { E_PULSE, E_WAVE, E_NOISE, E_FM, E_KIT, E_SAMPLE, E_N };
-static const char *const ENGINE_NAMES[LANG_N][E_N] = {{"CARRE", "ONDE", "BRUIT", "FM", "KIT", "SAMPLE"},
-                                                      {"PULSE", "WAVE", "NOISE", "FM", "KIT", "SAMPLE"},
-                                                      {"PULSO", "ONDA", "RUIDO", "FM", "KIT", "SAMPLE"}};
+enum { E_PULSE, E_WAVE, E_NOISE, E_FM, E_KIT, E_SAMPLE, E_SPU, E_N };   /* (E_SPU: GEARFRAME's, gear_spu.c) */
+static const char *const ENGINE_NAMES[LANG_N][E_N] = {{"CARRE", "ONDE", "BRUIT", "FM", "KIT", "SAMPLE", "SPU"},
+                                                      {"PULSE", "WAVE", "NOISE", "FM", "KIT", "SAMPLE", "SPU"},
+                                                      {"PULSO", "ONDA", "RUIDO", "FM", "KIT", "SAMPLE", "SPU"}};
 #define ENGINE_NAME ENGINE_NAMES[lang]
-static const uint8_t ENGINE_ICON[E_N] = {ICO_PULSE, ICO_WAVE, ICO_NOISE, ICO_FM, ICO_KIT, ICO_SAMPLE};
+static const uint8_t ENGINE_ICON[E_N] = {ICO_PULSE, ICO_WAVE, ICO_NOISE, ICO_FM, ICO_KIT, ICO_SAMPLE, ICO_SPU};
 
-/* ---- themes (OPTIONS, KNOB 1): the screen's colours. KAWA is the look of 0.1 */
+/* ---- themes (OPTIONS, KNOB 1): the screen's colours. GEARFRAME's three are a mech's HUD (hud: the blueprint behind the
+ * pages, kawa_gfx.c, and the cut corners); KAWA is the look of KAWA 0.1 */
 typedef struct {
     const char *name;
     uint16_t bg, bg2, beat, rule, faint, mid, txt, gold, rec, go, ink;   /* ink: text on a lit tile */
     uint16_t trk[NTRK];
+    uint8_t hud;
+    uint16_t bp;                                /* the blueprint's ink (the drawing; the glow is gold) */
 } theme_t;
-static const theme_t THEMES[4] = {
-    {"WONDERBLUE", RGB(22, 22, 22), RGB(32, 32, 32), RGB(46, 40, 32), RGB(62, 58, 52), RGB(128, 122, 114), RGB(180, 174, 164),
-     RGB(238, 232, 222), RGB(240, 160, 48), RGB(229, 72, 58), RGB(60, 201, 182), RGB(22, 18, 12),
-     {RGB(240, 160, 48), RGB(214, 128, 52), RGB(236, 186, 96), RGB(96, 146, 255), RGB(60, 201, 182), RGB(130, 176, 255)}},
+static const theme_t THEMES[6] = {
+    {"XENO", RGB(13, 17, 19), RGB(24, 30, 32), RGB(34, 42, 40), RGB(56, 66, 62), RGB(112, 120, 108), RGB(172, 176, 160),
+     RGB(234, 228, 206), RGB(234, 178, 72), RGB(214, 64, 48), RGB(96, 214, 170), RGB(13, 17, 19),
+     {RGB(234, 178, 72), RGB(222, 120, 64), RGB(86, 196, 180), RGB(118, 156, 224), RGB(164, 204, 98), RGB(222, 92, 112)},
+     1, RGB(66, 140, 130)},
+    {"ORBITAL", RGB(7, 11, 26), RGB(15, 23, 46), RGB(24, 36, 70), RGB(40, 60, 104), RGB(96, 120, 170), RGB(150, 180, 224),
+     RGB(222, 240, 255), RGB(84, 230, 255), RGB(255, 60, 120), RGB(120, 255, 180), RGB(7, 11, 26),
+     {RGB(84, 230, 255), RGB(255, 84, 172), RGB(164, 124, 255), RGB(60, 200, 220), RGB(172, 255, 120), RGB(255, 172, 70)},
+     1, RGB(54, 120, 230)},
+    {"RAVEN", RGB(5, 11, 7), RGB(12, 24, 16), RGB(18, 36, 24), RGB(30, 60, 40), RGB(72, 122, 86), RGB(122, 192, 132),
+     RGB(192, 255, 196), RGB(255, 190, 60), RGB(255, 70, 50), RGB(120, 255, 140), RGB(5, 11, 7),
+     {RGB(140, 255, 150), RGB(255, 190, 60), RGB(100, 220, 200), RGB(200, 255, 110), RGB(90, 200, 120), RGB(255, 130, 70)},
+     1, RGB(52, 140, 72)},
     {"KAWA", RGB(18, 12, 36), RGB(26, 18, 50), RGB(38, 28, 72), RGB(56, 44, 98), RGB(118, 106, 170), RGB(176, 166, 224),
      RGB(240, 236, 255), RGB(255, 222, 110), RGB(255, 64, 96), RGB(96, 255, 150), RGB(18, 12, 36),
-     {RGB(255, 95, 180), RGB(255, 176, 58), RGB(62, 216, 255), RGB(232, 240, 96), RGB(98, 242, 154), RGB(169, 139, 255)}},
+     {RGB(255, 95, 180), RGB(255, 176, 58), RGB(62, 216, 255), RGB(232, 240, 96), RGB(98, 242, 154), RGB(169, 139, 255)}, 0, 0},
     {"GAME BOY", RGB(15, 56, 15), RGB(24, 70, 24), RGB(40, 92, 36), RGB(56, 108, 48), RGB(110, 150, 70), RGB(160, 196, 60),
      RGB(214, 236, 150), RGB(236, 250, 170), RGB(250, 120, 90), RGB(200, 248, 120), RGB(15, 56, 15),
-     {RGB(200, 240, 110), RGB(170, 220, 90), RGB(220, 248, 150), RGB(150, 200, 70), RGB(230, 250, 170), RGB(180, 230, 100)}},
+     {RGB(200, 240, 110), RGB(170, 220, 90), RGB(220, 248, 150), RGB(150, 200, 70), RGB(230, 250, 170), RGB(180, 230, 100)}, 0, 0},
     {"BONBON", RGB(255, 244, 250), RGB(250, 230, 244), RGB(240, 210, 234), RGB(222, 190, 218), RGB(150, 120, 160),
      RGB(100, 72, 112), RGB(50, 28, 62), RGB(200, 106, 10), RGB(226, 30, 84), RGB(20, 150, 80), RGB(255, 255, 255),
-     {RGB(230, 50, 140), RGB(226, 120, 10), RGB(10, 140, 200), RGB(120, 150, 10), RGB(20, 160, 100), RGB(130, 70, 220)}},
+     {RGB(230, 50, 140), RGB(226, 120, 10), RGB(10, 140, 200), RGB(120, 150, 10), RGB(20, 160, 100), RGB(130, 70, 220)}, 0, 0},
 };
-#define NTHEME 4u
+#define NTHEME 6u
 static uint8_t theme;
 static uint16_t C_BG, C_BG2, C_BEAT, C_RULE, C_FAINT, C_MID, C_TXT, C_GOLD, C_REC, C_GO, C_INK;
 static uint16_t TRK_COL[NTRK];
+static uint8_t g_hud;                           /* the theme is a HUD: the blueprint, the cut corners */
+static uint16_t BP_PAL[4];                      /* the blueprint's paper, grid, drawing, glow */
+static uint16_t rgb_mix(uint16_t a, uint16_t b, uint32_t t)   /* a .. b, t = 0..256 (kawa_gfx.c's g_mix) */
+{
+    uint32_t ar = a >> 11, ag = (a >> 5) & 63u, ab = a & 31u, br = b >> 11, bg = (b >> 5) & 63u, bb = b & 31u;
+    return (uint16_t)(((ar * (256u - t) + br * t) >> 8) << 11 | ((ag * (256u - t) + bg * t) >> 8) << 5 | ((ab * (256u - t) + bb * t) >> 8));
+}
 static void theme_set(uint32_t k)
 {
     const theme_t *t = &THEMES[k % NTHEME];
@@ -52,6 +71,11 @@ static void theme_set(uint32_t k)
     C_TXT = t->txt; C_GOLD = t->gold; C_REC = t->rec; C_GO = t->go; C_INK = t->ink;
     for (i = 0; i < NTRK; i++)
         TRK_COL[i] = t->trk[i];
+    g_hud = t->hud;
+    BP_PAL[0] = t->bg;                          /* (faint: the pages' text stays on top) */
+    BP_PAL[1] = rgb_mix(t->bg, t->rule, 110);
+    BP_PAL[2] = rgb_mix(t->bg, t->bp, 92);
+    BP_PAL[3] = rgb_mix(t->bg, t->gold, 70);
 }
 /* one knob, one colour: KNOB 1..4 everywhere (the cards, the bottom line, the emulator's rings) */
 static const uint16_t KNOB_COL[4] = {RGB(255, 92, 92), RGB(255, 204, 64), RGB(92, 226, 116), RGB(84, 164, 255)};
@@ -93,6 +117,10 @@ static const char *const L_DUR[] = {"1/4", "1/2", "3/4", "1", "1.5", "2", "3", "
                                     "1/4", "1/2", "3/4", "1", "1.5", "2", "3", "4", "6", "8", "12", "TODO"};
 static const uint8_t DUR_Q[12] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 0};   /* quarter slices, 0 = to the end */
 static const char *const L_ONOFF[] = {"NON", "OUI", "NO", "YES", "NO", "SI"};
+static const char *const L_SPCH[] = {"AUCUN", "OCTAVE", "QUINTE", "PUISSANCE", "MAJEUR", "MINEUR", "SUS4", "MAJ7", "MIN7", "QUINTE 9",
+                                     "NONE", "OCTAVE", "FIFTH", "POWER", "MAJOR", "MINOR", "SUS4", "MAJ7", "MIN7", "FIFTH 9",
+                                     "NADA", "OCTAVA", "QUINTA", "POTENCIA", "MAYOR", "MENOR", "SUS4", "MAJ7", "MIN7", "QUINTA 9"};
+static const char *const L_SPINT[] = {"GAUSS", "LINEAIRE", "BRUT", "GAUSS", "LINEAR", "RAW", "GAUSS", "LINEAL", "CRUDO"};
 static const char *const L_SMODE[] = {"TRANCHE", "NOTES", "SLICES", "NOTES", "CORTES", "NOTAS"};
 static const char *const L_ALG[] = {"SON", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
                                     "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
@@ -161,6 +189,11 @@ static const pdesc_t PDESC[E_N][NPARAM] = {
      {PDN("DUREE", "LENGTH", "LARGO"), 0, 11, K_LIST, L_DUR}, {PDN("SATURE", "DRIVE", "SATURA"), 0, 15, K_NUM, 0},
      {PDN("ECRASE", "CRUSH", "TRITURA"), 0, 7, K_NUM, 0}, {PDN("TON", "TONE", "TONO"), 0, 15, K_NUM, 0},
      PD_ENV, PD_MIX, PD_FX, PD_LFO, PD_MOD},
+    {{PDN("INSTRU", "INSTR", "INSTRU"), 0, (int8_t)(SPU_N - 1u), K_NAMES, &SPU_NAME[0][0]},
+     {PDN("ACCORD", "CHORD", "ACORDE"), 0, 9, K_LIST, L_SPCH}, {PDN("ACCORD", "TUNE", "AFINA"), -12, 12, K_SIGN, 0},
+     {PDN("DESACC", "DETUNE", "DESAFIN"), 0, 15, K_NUM, 0}, {PDN("INTERP", "INTERP", "INTERP"), 0, 2, K_LIST, L_SPINT},
+     {PDN("VIBRATO", "VIBRATO", "VIBRATO"), 0, 15, K_NUM, 0}, {PDN("ECRASE", "CRUSH", "TRITURA"), 0, 7, K_NUM, 0},
+     {PDN("TON", "TONE", "TONO"), 0, 15, K_NUM, 0}, PD_ENV, PD_MIX, PD_FX, PD_LFO, PD_MOD},
 };
 /* the pages of the SOUND page (EDIT again: the next one); the FM track has two more: its operators; a SAMPLE
  * track one: its sample's edit. Every track has its TABLE last */
@@ -243,14 +276,37 @@ static const preset_t PRESETS[] = {
     {{"MON SAMPLE 2", "MY SAMPLE 2", "MI SAMPLE 2"}, E_SAMPLE, {(int8_t)(BRK_N + 1u), 1, 0, 0, 11, 0, 0, 15}, {0, 15, 15, 3}},
     {{"MON SAMPLE 3", "MY SAMPLE 3", "MI SAMPLE 3"}, E_SAMPLE, {(int8_t)(BRK_N + 2u), 1, 0, 0, 11, 0, 0, 15}, {0, 15, 15, 3}},
     {{"MON SAMPLE 4", "MY SAMPLE 4", "MI SAMPLE 4"}, E_SAMPLE, {(int8_t)(BRK_N + 3u), 1, 0, 0, 11, 0, 0, 15}, {0, 15, 15, 3}},
+    /* GEARFRAME: the SPU's instruments (gear_spu.h): INSTR, CHORD, TUNE, DETUNE, INTERP, VIBRATO, CRUSH, TONE */
+    {{"CORDES", "STRINGS", "CUERDAS"}, E_SPU, {0, 0, 0, 4, 0, 3, 0, 15}, {7, 10, 13, 9}},
+    {{"CHOEUR AAH", "CHOIR AAH", "CORO AAH"}, E_SPU, {1, 0, 0, 3, 0, 4, 0, 15}, {8, 10, 14, 10}},
+    {{"CORS", "HORNS", "TROMPAS"}, E_SPU, {2, 0, 0, 2, 0, 2, 0, 15}, {2, 8, 12, 5}},
+    {{"COUP ORCH", "ORCH HIT", "GOLPE ORQ"}, E_SPU, {3, 0, 0, 0, 0, 0, 0, 15}, {0, 15, 15, 6}},
+    {{"PIANO", "PIANO", "PIANO"}, E_SPU, {4, 0, 0, 0, 0, 0, 0, 15}, {0, 13, 0, 8}},
+    {{"PIANO ELEC", "E.PIANO", "PIANO ELEC"}, E_SPU, {5, 0, 0, 1, 0, 2, 0, 14}, {0, 12, 4, 8}},
+    {{"BASSE SLAP", "SLAP BASS", "BAJO SLAP"}, E_SPU, {6, 0, 0, 0, 0, 0, 0, 15}, {0, 9, 6, 3}},
+    {{"FRETLESS", "FRETLESS", "FRETLESS"}, E_SPU, {7, 0, 0, 0, 0, 3, 0, 15}, {1, 10, 11, 5}},
+    {{"BASSE SYNTH", "SYNTH BASS", "BAJO SINTE"}, E_SPU, {8, 0, 0, 2, 0, 0, 0, 13}, {0, 8, 10, 3}},
+    {{"HARPE", "HARP", "ARPA"}, E_SPU, {9, 0, 0, 0, 0, 0, 0, 15}, {0, 12, 0, 9}},
+    {{"FLUTE BOIS", "WOOD FLUTE", "FLAUTA MADERA"}, E_SPU, {10, 0, 0, 0, 0, 5, 0, 15}, {4, 8, 13, 6}},
+    {{"CARILLON", "CHIMES", "CARILLON"}, E_SPU, {11, 0, 0, 0, 0, 0, 0, 15}, {0, 14, 0, 11}},
+    {{"NAPPE CHAUDE", "WARM PAD", "COLCHON"}, E_SPU, {12, 0, 0, 5, 0, 0, 0, 13}, {10, 12, 14, 12}},
+    {{"GUITARE SAT", "POWER CHORD", "GUITARRA"}, E_SPU, {13, 0, 0, 0, 0, 0, 0, 15}, {0, 10, 12, 4}},
+    {{"TIMBALES", "TIMPANI", "TIMBALES"}, E_SPU, {14, 0, 0, 0, 0, 0, 0, 15}, {0, 15, 15, 8}},
+    {{"STAB RAVE", "RAVE STAB", "STAB RAVE"}, E_SPU, {15, 0, 0, 0, 0, 0, 0, 15}, {0, 9, 5, 6}},
+    {{"CORDES QUINTES", "STRING FIFTHS", "CUERDAS 5AS"}, E_SPU, {0, 3, 0, 5, 0, 3, 0, 15}, {8, 10, 13, 10}},
+    {{"CHOEUR OCTAVE", "CHOIR OCTAVE", "CORO OCTAVA"}, E_SPU, {1, 1, 0, 4, 0, 4, 0, 14}, {9, 10, 14, 11}},
+    {{"SECTION CUIVRES", "BRASS SECTION", "SECCION METAL"}, E_SPU, {2, 3, 0, 3, 0, 2, 0, 15}, {1, 8, 11, 5}},
+    {{"RAVE MINEUR", "RAVE MINOR", "RAVE MENOR"}, E_SPU, {15, 5, 0, 0, 0, 0, 0, 15}, {0, 9, 4, 6}},
+    {{"PIANO LO-FI", "LO-FI PIANO", "PIANO LO-FI"}, E_SPU, {4, 0, 0, 0, 2, 0, 2, 12}, {0, 12, 0, 7}},
+    {{"VERRE", "GLASS", "CRISTAL"}, E_SPU, {11, 2, 0, 3, 0, 0, 0, 15}, {0, 13, 6, 12}},
 };
 #define KIT_DEMO 6                              /* the demo's kit (its first knob): SNES */
 #define BRK_DEMO 3                              /* the demo's break: ABYSSE (the boss is breakcore) */
 #define NPRESET ((uint8_t)(sizeof(PRESETS) / sizeof(PRESETS[0])))
 /* each track's sound on a new project (an index in PRESETS) */
-static const uint8_t TRK_ENGINE0[NTRK] = {E_PULSE, E_FM, E_WAVE, E_NOISE, E_KIT, E_SAMPLE};   /* a new project: lead, */
-static const int8_t TRK_S0[NTRK] = {1, 0, 0, 0, 0, 0};   /* FM, bass, hats, kit, break (each its engine's sound with this */
-                                                          /* first knob: LEAD 25, TINE EP, NES BASS, HI-HAT, ACOUSTIC, SOLEIL) */
+static const uint8_t TRK_ENGINE0[NTRK] = {E_SPU, E_SPU, E_SPU, E_SPU, E_KIT, E_SAMPLE};   /* a new project (GEARFRAME): */
+static const int8_t TRK_S0[NTRK] = {4, 0, 7, 10, 0, 0};  /* the SPU's piano, strings, fretless, flute, a kit, a break (each */
+                                                          /* its engine's sound with this first knob) */
 
 /* ---- notes */
 static const char *const NOTE_NAME[12] = {"C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"};
@@ -419,7 +475,7 @@ static const char *const L_SCOPES[LANG_N][2] = {{"PISTE", "MOTIF"}, {"TRACK", "P
 #define L_SCOPE L_SCOPES[lang]
 
 /* ---- names for new projects */
-static const char *const NAME_A[8] = {"KAWA", "MIETTE", "PIXEL", "BOUM", "ZINZIN", "CHIP", "RAGE", "CANDY"};
+static const char *const NAME_A[8] = {"GEAR", "MIETTE", "PIXEL", "BOUM", "ZINZIN", "CHIP", "RAGE", "CANDY"};
 static const char *const NAME_B[8] = {"ROSE", "VOLT", "NOIRE", "FOLLE", "MAGIK", "TURBO", "DOUCE", "SALE"};
 
 /* a list's value in the language (K_LIST: n values x 3 languages; K_NAMES: [3][n], here FM_PATCH_NAME) */
@@ -427,7 +483,5 @@ static const char *pd_value(const pdesc_t *d, int32_t v)
 {
     uint32_t n = (uint32_t)(d->hi - d->lo + 1);
     v = clampi(v, d->lo, d->hi);
-    if (d->kind == K_NAMES)
-        return d->list[(uint32_t)lang * FM_NPATCH + (uint32_t)(v - d->lo)];
     return d->list[(uint32_t)lang * n + (uint32_t)(v - d->lo)];
 }

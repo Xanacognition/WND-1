@@ -1,5 +1,5 @@
-<title>Wonderblue-OS</title>
-<meta name="description" content="Wonderblue-OS (WND-1): a genre tracker firmware for the M-VAVE FM-1, built on KAWA by Omnipotard, running in the browser.">
+<title>GEARFRAME</title>
+<meta name="description" content="GEARFRAME: a PS1 soundtrack tracker firmware for the M-VAVE FM-1 (SPU ADPCM instruments, the SPU reverb, a style generator), built on KAWA by Omnipotard, running in the browser.">
 <meta name="theme-color" content="#121212">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2334313b'/%3E%3Crect x='6' y='6' width='20' height='14' rx='2' fill='%23120c24'/%3E%3Crect x='9' y='10' width='4' height='6' fill='%23ff5fb4'/%3E%3Crect x='15' y='9' width='3' height='7' fill='%23ffb03a'/%3E%3Crect x='20' y='12' width='3' height='4' fill='%233ed8ff'/%3E%3Ccircle cx='10' cy='25' r='2.4' fill='%23FF5C5C'/%3E%3Ccircle cx='16' cy='25' r='2.4' fill='%23FFCC40'/%3E%3Ccircle cx='22' cy='25' r='2.4' fill='%235CE274'/%3E%3C/svg%3E">
@@ -11,9 +11,9 @@
    right knobs and buttons, the keybed below) and restacks on a phone, the screen first. One dark look.
    Below it: the user's samples, the saved projects, the guide, a word from the author. */
 :root {
-  --desk: #121212;
-  --desk-2: #1b1b1b;
-  --desk-3: #232323;
+  --desk: #0d1113;
+  --desk-2: #161d20;
+  --desk-3: #1e272a;
   --body: #2c2c2c;
   --body-hi: #3a3a3a;
   --bezel: #09080c;
@@ -21,9 +21,9 @@
   --ink: #f1ecfb;
   --muted: #8c8984;
   --text-2: #d9d3e6;
-  --pink: #5a8cff;
-  --amber: #f0a030;
-  --cyan: #3cc9b6;
+  --pink: #eab248;
+  --amber: #eab248;
+  --cyan: #56c4b4;
   --green: #7ef0a8;
   --led-off: #2a2731;
   --k1: #FF5C5C;
@@ -271,7 +271,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1>WONDER<span>BLUE</span></h1>
+      <h1>GEAR<span>FRAME</span></h1>
       <span class="beta" id="beta-badge">__KAWA_VER__ BETA</span>
     </div>
     <div class="tag" data-t="tag"></div>
@@ -498,17 +498,17 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   /* ---- the page in three languages (the FM-1's screen follows: kawa_lang) */
   const I18N = {
     en: {
-      tag: "Genre tracker on KAWA · firmware for the M-VAVE FM-1",
+      tag: "PS1 OST tracker on KAWA · firmware for the M-VAVE FM-1",
       langs: "Language",
       beta: "<b>This is a beta.</b> KAWA has not been tested on a real FM-1 yet. Read the safety section of the manual before you install it. The official firmware can always be reinstalled with M-UPGRADE; that is the risky step, so never unplug the FM-1 while it runs.",
       screen: "The FM-1's screen",
       power: "The firmware runs here as it is, compiled to WebAssembly. Turn the sound on, power up, then press any key.",
       powerBtn: "POWER ON",
       err: "Sound could not start in this browser. Try a recent Chrome, Edge or Firefox.",
-      pages: ["TRACKS", "GRID", "SOUND", "ENVELOPE", "MIX", "MAGIC", "SCALE", "SONG", "PROJECTS", "OPTIONS", "EFFECTS", "HELP", "BOOT", "GROOVE", "SENDS", "GENRE"],
+      pages: ["TRACKS", "GRID", "SOUND", "ENVELOPE", "MIX", "MAGIC", "SCALE", "SONG", "PROJECTS", "OPTIONS", "EFFECTS", "HELP", "BOOT", "GROOVE", "SENDS", "STYLE"],
       track: "TRACK {n}", master: "MASTER",
       "k.master": "VOLUME", "k.select": "ROW / PAGE", "k.presets": "PATTERN / SOUND", "k.algo": "TRACK", "k.unused": "unused",
-      "b.oct": "OCTAVE", "b.fx": "SENDS / LIVE", "b.scl": "SCALE / MAGIC / GENRE", "b.env": "ENV / MIX", "b.lfo": "LFO / MOD", "b.edit": "SOUND", "b.glo": "SONG / OPT.",
+      "b.oct": "OCTAVE", "b.fx": "SENDS / LIVE", "b.scl": "SCALE / MAGIC / STYLE", "b.env": "ENV / MIX", "b.lfo": "LFO / MOD", "b.edit": "SOUND", "b.glo": "SONG / OPT.",
       "b.home": "TRACKS", "b.home.alt": "HOLD: HELP", "b.save": "PROJECTS", "b.save.alt": "HOLD: TOOLS", "b.arp": "CLEAR", "b.seq": "GRID", "b.play": "PLAY", "b.rec": "REC",
       colours: ["red", "yellow", "green", "blue"],
       "tt.MASTER": "MASTER: the volume of this page (wheel, drag, or the arrow keys when it has the focus).",
@@ -598,17 +598,17 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       "d.sig": "Omnipotard, who made KAWA",
       "d.btn": "Buy me a beer on Ko-fi",
       "d.new": " (opens a new tab)",
-      foot: "Wonderblue-OS is KAWA (by Omnipotard) with a genre generator. It is free software (GPL-3.0), built on Dinghy, Felucca and SLOOP, the open platform of the FM-1 community. The breaks are entirely synthesised. The firmware installs on the FM-1 over USB at your own risk: keep the official V15 firmware and M-UPGRADE at hand to go back."
+      foot: "GEARFRAME is KAWA (by Omnipotard), by way of Wonderblue-OS, turned to the music of PlayStation games: SPU ADPCM instruments, the SPU's reverb, a style generator and a mech's HUD. It is free software (GPL-3.0), built on Dinghy, Felucca and SLOOP, the open platform of the FM-1 community. The breaks and the SPU's instruments are entirely synthesised. The firmware installs on the FM-1 over USB at your own risk: keep the official V15 firmware and M-UPGRADE at hand to go back."
     },
     fr: {
-      tag: "Pocket Tracker by Omnipotard · firmware pour M-VAVE FM-1",
+      tag: "Tracker de BO PS1 sur KAWA · firmware pour M-VAVE FM-1",
       langs: "Langue",
       beta: "<b>Ceci est une bêta.</b> KAWA n'a pas encore été testé sur un vrai FM-1. Lis la partie sécurité du manuel avant de l'installer. Le firmware officiel se réinstalle toujours avec M-UPGRADE ; c'est l'étape risquée : ne débranche jamais le FM-1 pendant qu'elle tourne.",
       screen: "L'écran du FM-1",
       power: "Le firmware tourne ici tel quel, compilé en WebAssembly. Mets le son, allume, puis appuie sur une touche.",
       powerBtn: "ALLUMER",
       err: "Le son n'a pas pu démarrer dans ce navigateur. Essaie un Chrome, Edge ou Firefox récent.",
-      pages: ["PISTES", "GRILLE", "SON", "ENVELOPPE", "MIX", "MAGIE", "GAMME", "CHAÎNE", "PROJETS", "OPTIONS", "EFFETS", "AIDE", "DÉMARRAGE", "GROOVE", "ENVOIS", "GENRE"],
+      pages: ["PISTES", "GRILLE", "SON", "ENVELOPPE", "MIX", "MAGIE", "GAMME", "CHAÎNE", "PROJETS", "OPTIONS", "EFFETS", "AIDE", "DÉMARRAGE", "GROOVE", "ENVOIS", "STYLE"],
       track: "PISTE {n}", master: "MASTER",
       "k.master": "VOLUME", "k.select": "LIGNE / PAGE", "k.presets": "MOTIF / SON", "k.algo": "PISTE", "k.unused": "inutilisé",
       "b.oct": "OCTAVE", "b.fx": "ENVOIS / LIVE", "b.scl": "GAMME / MAGIE", "b.env": "ENV / MIX", "b.lfo": "LFO / MOD", "b.edit": "SON", "b.glo": "CHAÎNE / OPT.",
@@ -704,14 +704,14 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       foot: "KAWA est un logiciel libre (GPL-3.0), construit sur Dinghy, Felucca et SLOOP, la plateforme ouverte de la communauté FM-1. Les breaks sont entièrement synthétisés. Le firmware s'installe sur le FM-1 par USB, à tes risques : garde le firmware officiel V15 et M-UPGRADE sous la main pour revenir en arrière."
     },
     es: {
-      tag: "Pocket Tracker by Omnipotard · firmware para el M-VAVE FM-1",
+      tag: "Tracker de BSO de PS1 sobre KAWA · firmware para el M-VAVE FM-1",
       langs: "Idioma",
       beta: "<b>Esto es una beta.</b> KAWA aún no se ha probado en un FM-1 real. Lee la sección de seguridad del manual antes de instalarlo. El firmware oficial siempre se puede reinstalar con M-UPGRADE; es el paso delicado: nunca desconectes el FM-1 mientras se ejecuta.",
       screen: "La pantalla del FM-1",
       power: "El firmware funciona aquí tal cual, compilado a WebAssembly. Sube el sonido, enciende y luego pulsa una tecla.",
       powerBtn: "ENCENDER",
       err: "El sonido no pudo arrancar en este navegador. Prueba un Chrome, Edge o Firefox reciente.",
-      pages: ["PISTAS", "REJILLA", "SONIDO", "ENVOLVENTE", "MEZCLA", "MAGIA", "ESCALA", "CANCIÓN", "PROYECTOS", "OPCIONES", "EFECTOS", "AYUDA", "ARRANQUE", "GROOVE", "ENVÍOS", "GÉNERO"],
+      pages: ["PISTAS", "REJILLA", "SONIDO", "ENVOLVENTE", "MEZCLA", "MAGIA", "ESCALA", "CANCIÓN", "PROYECTOS", "OPCIONES", "EFECTOS", "AYUDA", "ARRANQUE", "GROOVE", "ENVÍOS", "ESTILO"],
       track: "PISTA {n}", master: "MASTER",
       "k.master": "VOLUMEN", "k.select": "FILA / PÁGINA", "k.presets": "PATRÓN / SONIDO", "k.algo": "PISTA", "k.unused": "sin uso",
       "b.oct": "OCTAVA", "b.fx": "ENVÍOS / LIVE", "b.scl": "ESCALA / MAGIA", "b.env": "ENV / MEZCLA", "b.lfo": "LFO / MOD", "b.edit": "SONIDO", "b.glo": "CANCIÓN / OPC.",

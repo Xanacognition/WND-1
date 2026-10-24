@@ -22,6 +22,7 @@ static uint16_t g_mix(uint16_t a, uint16_t b, uint32_t t)   /* a .. b, t = 0..25
     return (uint16_t)(ar << 11 | ag << 5 | ab);
 }
 
+/* GEARFRAME: in a HUD theme, the pages' background (C_BG) is the blueprint (gear_mech.h), in the theme's colours */
 static void g_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 {
     int32_t x1 = x + w, y1 = y + h, i;
@@ -29,6 +30,15 @@ static void g_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
     if (x1 > 240) x1 = 240;
     if (y < g_y0) y = g_y0;
     if (y1 > g_y0 + (int32_t)BAND_H) y1 = g_y0 + (int32_t)BAND_H;
+    if (g_hud && c == C_BG && y >= 0 && y1 <= 240) {
+        for (; y < y1; y++) {
+            uint16_t *p = &g_buf[(uint32_t)(y - g_y0) * 240u];
+            const uint8_t *m = &MECH_BP[(uint32_t)y * 60u];
+            for (i = x; i < x1; i++)
+                p[i] = BP_PAL[(m[i >> 2] >> ((i & 3) * 2)) & 3u];
+        }
+        return;
+    }
     for (; y < y1; y++) {
         uint16_t *p = &g_buf[(uint32_t)(y - g_y0) * 240u];
         for (i = x; i < x1; i++)
@@ -57,23 +67,54 @@ static void g_px(int32_t x, int32_t y, uint16_t c)
         g_buf[(uint32_t)y * 240u + (uint32_t)x] = c;
 }
 
-static void g_rrect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)   /* corners cut */
+/* corners cut: a pixel (KAWA's), or in a HUD theme a mech panel's chamfers, the top left and the bottom right */
+static int32_t g_cham(int32_t w, int32_t h)     /* the chamfer for a panel of w x h */
 {
+    int32_t k = h / 4;
+    if (k > 6) k = 6;
+    if (k > w / 4) k = w / 4;
+    return k < 2 ? 2 : k;
+}
+static void g_rrect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
+{
+    int32_t k, j;
     if (!g_vis(y, h))
         return;
-    g_rect(x + 1, y, w - 2, 1, c);
-    g_rect(x, y + 1, w, h - 2, c);
-    g_rect(x + 1, y + h - 1, w - 2, 1, c);
+    if (!g_hud) {
+        g_rect(x + 1, y, w - 2, 1, c);
+        g_rect(x, y + 1, w, h - 2, c);
+        g_rect(x + 1, y + h - 1, w - 2, 1, c);
+        return;
+    }
+    k = g_cham(w, h);
+    for (j = 0; j < k; j++) {
+        g_rect(x + k - j, y + j, w - (k - j), 1, c);
+        g_rect(x, y + h - 1 - j, w - (k - j), 1, c);
+    }
+    g_rect(x, y + k, w, h - 2 * k, c);
 }
 
-static void g_frame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)  /* a rounded outline */
+static void g_frame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)  /* a rounded (HUD: chamfered) outline */
 {
+    int32_t k, j;
     if (!g_vis(y, h))
         return;
-    g_rect(x + 1, y, w - 2, 1, c);
-    g_rect(x + 1, y + h - 1, w - 2, 1, c);
-    g_rect(x, y + 1, 1, h - 2, c);
-    g_rect(x + w - 1, y + 1, 1, h - 2, c);
+    if (!g_hud) {
+        g_rect(x + 1, y, w - 2, 1, c);
+        g_rect(x + 1, y + h - 1, w - 2, 1, c);
+        g_rect(x, y + 1, 1, h - 2, c);
+        g_rect(x + w - 1, y + 1, 1, h - 2, c);
+        return;
+    }
+    k = g_cham(w, h);
+    g_rect(x + k, y, w - k, 1, c);
+    g_rect(x, y + h - 1, w - k, 1, c);
+    g_rect(x, y + k, 1, h - k, c);
+    g_rect(x + w - 1, y, 1, h - k, c);
+    for (j = 1; j < k; j++) {
+        g_px(x + k - j, y + j, c);
+        g_px(x + w - 1 - k + j, y + h - 1 - j, c);
+    }
 }
 
 static void g_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)
@@ -140,6 +181,27 @@ static int32_t g_text(int32_t x, int32_t y, const char *s, uint16_t c, uint32_t 
             }
         }
         x += 8;
+    }
+    return x;
+}
+
+/* the small font at twice its size, bold (GEARFRAME's title: the large font has only some capitals), rows 2..13 */
+static int32_t g_text2(int32_t x, int32_t y, const char *s, uint16_t c)
+{
+    const felucca_font_t *f = g_fs;
+    if (!g_vis(y, 24)) return x + 16 * (int32_t)str_len(s);
+    for (; *s; s++) {
+        uint32_t gi = glyph(f, (uint8_t)*s), w = f->bw[gi], bpr = (w + 1u) / 2u, gx;
+        const uint8_t *gd = f->data + f->off[gi];
+        int32_t gy;
+        for (gy = 2; gy < 14; gy++)
+            for (gx = 0; gx < w; gx++) {
+                uint32_t v = gd[(uint32_t)gy * bpr + gx / 2u];
+                v = (gx & 1u) ? (v & 15u) : (v >> 4);
+                if (v >= 7u)
+                    g_rect(x + 2 * ((int32_t)gx - (int32_t)f->pad), y + 2 * (gy - 2), 3, 2, c);
+            }
+        x += 16;
     }
     return x;
 }

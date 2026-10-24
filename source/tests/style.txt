@@ -1,0 +1,36 @@
+# GEARFRAME: the boot, the STYLE page writing a piece, the SPU's pages, the themes (ids: see tests/host.c)
+300 shot s01-boot-scan
+2600 shot s02-boot
+2800 btn 8
+3000 btn 3
+3100 btn 3
+3200 btn 3
+3400 shot s03-style
+3500 btn 1
+3600 btn 1
+3900 shot s04-written
+4000 btn 12
+4100 btn 8
+6200 shot s05-tracks-playing
+6300 enc 1 4
+6400 btn 6
+7600 shot s06-spu-sound
+7700 btn 2
+7900 shot s07-sends
+8000 btn 11
+8200 shot s08-grid
+8300 btn 7
+8400 btn 7
+8500 btn 7
+8600 enc 2 1
+8800 shot s09-options-orbital
+8900 btn 8
+10000 shot s10-tracks-orbital
+10100 btn 7
+10200 btn 7
+10300 btn 7
+10400 enc 2 1
+10500 btn 8
+11500 shot s11-tracks-raven
+11600 btn 12
+11700 end

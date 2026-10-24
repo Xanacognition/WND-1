@@ -1,17 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Wonderblue-OS: the genre generator. GENRE (SCL, after MAGIC): KNOB 1 a genre, KNOB 2 a chord progression (the
- * genre's own, or a standard one), KNOB 3 the energy; OCT+ twice writes a whole song into patterns 1-8, chains them
- * and sets the tempo, swing, key, scale and the six tracks' sounds. Each press rolls a new song (tempo, key, lanes,
- * the parts' styles and the sounds come from the genre's pools).
+/* GEARFRAME: the style generator (Wonderblue-OS's genre generator, turned to the music of the PlayStation's games).
+ * STYLE (SCL, after MAGIC): KNOB 1 a style, KNOB 2 a chord progression (the style's own, or a standard one), KNOB 3
+ * the energy; OCT+ twice writes a whole piece into patterns 1-8, chains them and sets the tempo, swing, key, scale,
+ * the six tracks' sounds and the SPU reverb's room. Each press rolls a new piece (tempo, key, lanes, the parts'
+ * styles and the sounds come from the style's pools).
  *
- *   T1 BRK  a break cut in 16 slices        T2 DRM  a kit: kicks, snares, claps     T3 HAT  the same kit's hats
- *   T4 BAS  wave or pulse bass              T5 KEY  FM keys (chords or a melody)   T6 SYN  pulse/wave: the keys' partner
+ *   T1 BRK  a break in 16 slices, or the orchestra (timpani,   T2 DRM  a kit: kicks, snares, claps
+ *           an orchestra hit) on the chords' roots              T3 HAT  the same kit's hats
+ *   T4 BAS  an SPU bass (slap, fretless, synth)                 T5 KEY  SPU keys: block chords or a melody
+ *   T6 SYN  SPU: the keys' partner (strings, choir, flute...)
  *
- * The eight patterns are a song's sections: A main, B variation, C breakdown, D build, E the other groove, F half-time,
- * G chopped, H outro; the chain plays A B A E C F G D A H. Two bars a pattern, one chord a bar. */
+ * The eight patterns are a piece's sections: A main, B variation, C breakdown, D build, E the other groove, F half-time,
+ * G chopped, H outro; the chain plays A B A E C F G D A H. Two bars a pattern, one chord a bar. On an SPU track the
+ * ARP trick plays its chord at once (gear_spu.c): the chords here are a sequencer's, not a chip's arpeggios. */
 
 enum { WT_BRK, WT_DRM, WT_HAT, WT_BAS, WT_KEY, WT_SYN };
-enum { GB_OFF, GB_STRAIGHT, GB_CHOP, GB_STORM, GB_SPARSE, GB_HALF };
+enum { GB_OFF, GB_STRAIGHT, GB_CHOP, GB_STORM, GB_SPARSE, GB_HALF, GB_ORCH };
 enum { GL_ROOTS, GL_WALK, GL_SUB, GL_OFFBEAT, GL_EIGHTHS, GL_ACID };
 enum { GK_MOTIF, GK_ARP, GK_LEAD, GK_PADS, GK_STABS, GK_JAZZ };   /* melodies first, then chords */
 #define GK_IS_CHORD(m) ((m) >= GK_PADS)
@@ -31,87 +35,78 @@ static const char GN_LANE[LN_N][17] = {
     "x.x.x.x.x.x.x.x.", "xxxxxxxxxxxxxxxx", "..x...x...x...x.", "..o...o...o...o.", "x.xx.xx.xx.xx.x.", "x...x...x...x...",
     "x.x.x.xxx.x.x.xx", "..x.x.x...x.x.x."};
 
-/* the pulse and wave sounds the bass and SYN tracks take (factory sounds, by their English name) */
-enum { WS_NES, WS_GB, WS_BASS, WS_DIRTY, WS_SAW, WS_SUPER, WS_PWM, WS_FLUTE, WS_VOICE, WS_LEAD, WS_SQUARE, WS_PLUCK,
-       WS_ORGAN, WS_LASER, WS_BEEP, WS_N };
-static const char *const WS_NAME[WS_N] = {"NES BASS", "GB BASS", "BASS", "DIRTY", "SAW", "SUPER PULSE", "PWM PAD",
-                                          "FLUTE", "VOICE", "LEAD 25", "SQUARE 50", "PLUCK", "ORGAN", "LASER", "BEEP 12"};
-/* FM patches (kawa_fm.h): 0 TINE EP, 1 BELL, 2 FM BASS, 3 BRASS, 4 PAD, 5 MARIMBA, 6 FM ORGAN, 7 PLUCK, 8 CHIP LEAD,
- * 9 ACID BASS, 10 HOOVER, 11 KALIMBA. Kits (kawa_kits.h): 0 ACOUSTIC, 1 HIP HOP, 2 TECHNO, 3 DUB, 4 LO-FI, 5 GAME BOY,
- * 6 SNES, 7 PERCUSSION. Breaks: 0 SOLEIL (ride, live room), 1 GRELOT (70s funk), 2 TENDU (dry, claps), 3 ABYSSE
- * (ragga jungle), 4 MAMBO (congas), 5 GRENIER (dusty hip hop). Scales (kawa_data.c): 1 MAJOR, 2 MINOR, 6 DORIAN,
- * 7 PHRYGIAN */
-enum { SC_MAJ = 1, SC_MIN = 2, SC_DOR = 6, SC_PHR = 7 };
+/* Kits (kawa_kits.h): 0 ACOUSTIC, 1 HIP HOP, 2 TECHNO, 3 DUB, 4 LO-FI, 5 GAME BOY, 6 SNES, 7 PERCUSSION. Breaks: 0 SOLEIL
+ * (ride, live room), 1 GRELOT (70s funk), 2 TENDU (dry, claps), 3 ABYSSE (ragga jungle), 4 MAMBO (congas), 5 GRENIER
+ * (dusty hip hop). Scales (kawa_data.c): 1 MAJOR, 2 MINOR, 6 DORIAN, 7 PHRYGIAN, 8 HARMONIC, 9 JAPANESE. The SPU
+ * reverb's rooms (kawa_fx.c): 0 HALL, 1 STUDIO L, 2 STUDIO M, 3 STUDIO S, 4 ROOM, 5 HALF ECHO, 6 SPACE ECHO */
+enum { SC_MAJ = 1, SC_MIN = 2, SC_DOR = 6, SC_PHR = 7, SC_HARM = 8, SC_JAP = 9 };
+enum { RV_HALL, RV_STL, RV_STM, RV_STS, RV_ROOM, RV_HALF, RV_SPACE };
 
 typedef struct {
     const char *name, *blurb;
     uint8_t bpm_lo, bpm_hi, swing, scale;
     int8_t prog[4];                             /* scale degrees, one a bar; -1 ends a shorter one */
-    uint8_t brk, brk_src, kit, k, k2, s, h, h2; /* the break's style and source; the kit; two kick lanes, a snare, two hat */
-    uint8_t bass, bass_snd, key, key_patch, key_patch2, syn_snd;
+    uint8_t brk, brk_src, kit, k, k2, s, h, h2; /* T1's part and its break; the kit; two kick lanes, a snare, two hat */
+    uint8_t bass, key, rvb;                     /* the bass's and the keys' parts; the SPU reverb's room */
+    const char *bass_snd, *key_snd, *key_snd2, *syn_snd, *t1_snd;   /* factory sounds, by their English name */
 } genre_t;
 #define P4(a, b, c, d) {a, b, c, d}
 static const genre_t GENRES[] = {
-    {"TRIP-HOP", "SMOKY MINOR, HALF TIME", 76, 92, 54, SC_MIN, P4(0, 5, 3, 4), GB_CHOP, 5, 4, LN_TRIP, LN_HALF, LN_HALFS, LN_HOFF, LN_H8, GL_WALK, WS_GB, GK_STABS, 0, 4, WS_FLUTE},
-    {"BOOM BAP", "CHOPPED BREAKS, SWING", 86, 96, 62, SC_MIN, P4(0, 3, 6, 4), GB_STRAIGHT, 5, 1, LN_BOOM, LN_BOOM3, LN_BACKG, LN_H8, LN_HSHUF, GL_ROOTS, WS_NES, GK_JAZZ, 0, 3, WS_VOICE},
-    {"LO-FI BEATS", "DUSTY AND LAID BACK", 70, 86, 60, SC_DOR, P4(1, 4, 0, 5), GB_STRAIGHT, 5, 4, LN_BOOM, LN_HALF, LN_BACK, LN_HSHUF, LN_H8, GL_SUB, WS_GB, GK_JAZZ, 0, 4, WS_FLUTE},
-    {"TAPE HAZE", "MUSIC BOX, WARPED TAPE", 80, 92, 56, SC_DOR, P4(0, 3, 5, 4), GB_STRAIGHT, 0, 4, LN_BOOM, LN_TRIP, LN_BACK, LN_HOFF, LN_H8, GL_ROOTS, WS_GB, GK_MOTIF, 11, 1, WS_PWM},
-    {"VELVET 9TH", "PLAYFUL JAZZY HIP HOP", 92, 104, 58, SC_DOR, P4(0, 3, 1, 4), GB_CHOP, 1, 1, LN_BOOM, LN_FUNK, LN_BACKG, LN_H8, LN_HSHUF, GL_WALK, WS_BASS, GK_MOTIF, 1, 5, WS_ORGAN},
-    {"JUNGLE", "AMEN CHOPS AT 170", 160, 174, 50, SC_MIN, P4(0, 5, 0, 6), GB_CHOP, 3, 1, LN_DNB, LN_NONE, LN_NONE, LN_NONE, LN_NONE, GL_SUB, WS_GB, GK_PADS, 4, 10, WS_VOICE},
-    {"DRUM & BASS", "TWO-STEP, ROLLING", 170, 176, 50, SC_MIN, P4(0, 5, 2, 6), GB_STRAIGHT, 2, 2, LN_DNB, LN_DNB2, LN_BACK, LN_H8, LN_H16, GL_SUB, WS_DIRTY, GK_LEAD, 7, 1, WS_PWM},
-    {"BREAKCORE", "SHREDDED BREAKS, SAD PADS", 170, 190, 50, SC_PHR, P4(0, 1, 0, 5), GB_STORM, 3, 2, LN_HALF, LN_FOUR, LN_NONE, LN_NONE, LN_H8, GL_SUB, WS_GB, GK_PADS, 4, 10, WS_VOICE},
-    {"UK GARAGE", "SHUFFLED 2-STEP", 130, 136, 64, SC_MIN, P4(0, 3, 5, 4), GB_SPARSE, 2, 1, LN_GARAGE, LN_GARAGE2, LN_BACK, LN_HGAR, LN_HSHUF, GL_OFFBEAT, WS_GB, GK_STABS, 6, 0, WS_VOICE},
-    {"DUBSTEP", "140 HALF TIME, WOBBLE", 138, 142, 50, SC_PHR, P4(0, 1, -1, 0), GB_SPARSE, 5, 2, LN_ONE, LN_HALF, LN_HALFS, LN_HSPARSE, LN_H8, GL_SUB, WS_DIRTY, GK_LEAD, 10, 3, WS_PWM},
-    {"TRAP", "808S, ROLLING HATS", 136, 150, 50, SC_MIN, P4(0, 5, 6, 4), GB_OFF, 0, 1, LN_TRAP, LN_HALF, LN_HALFS, LN_HTRAP, LN_H16, GL_SUB, WS_GB, GK_LEAD, 1, 11, WS_PWM},
-    {"AMBIENT", "FLOATING CHORDS", 64, 80, 50, SC_MAJ, P4(0, 4, 5, 3), GB_OFF, 0, 4, LN_NONE, LN_NONE, LN_NONE, LN_HSPARSE, LN_NONE, GL_SUB, WS_GB, GK_PADS, 4, 6, WS_FLUTE},
-    {"DARK AMBIENT", "LOW DRONES, DISTANT BOOM", 56, 72, 50, SC_PHR, P4(0, 1, -1, 0), GB_OFF, 0, 3, LN_ONE, LN_NONE, LN_NONE, LN_NONE, LN_NONE, GL_SUB, WS_GB, GK_PADS, 4, 6, WS_VOICE},
-    {"AMBIENT BEATS", "SOFT BREAK, ARPS", 68, 82, 52, SC_MAJ, P4(0, 4, 5, 3), GB_SPARSE, 0, 4, LN_HALF, LN_DNB, LN_HALFS, LN_HSPARSE, LN_HOFF, GL_SUB, WS_GB, GK_ARP, 11, 1, WS_PWM},
-    {"MATH ROCK", "BUSY KICKS, TAPPED ARPS", 120, 150, 50, SC_MAJ, P4(0, 4, 5, 3), GB_CHOP, 2, 0, LN_MATH, LN_ELECTRO, LN_MATHS, LN_H8, LN_H16, GL_WALK, WS_BASS, GK_ARP, 7, 5, WS_ORGAN},
-    {"ACID", "FOUR TO THE FLOOR, SQUELCH", 122, 132, 52, SC_PHR, P4(0, 1, -1, 0), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_H16, GL_ACID, WS_DIRTY, GK_LEAD, 3, 6, WS_SAW},
-    {"HOUSE", "OPEN HATS, ORGAN STABS", 120, 126, 54, SC_MIN, P4(0, 3, 5, 4), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOPEN, LN_HOFF, GL_OFFBEAT, WS_BASS, GK_STABS, 6, 0, WS_VOICE},
-    {"DEEP HOUSE", "WARM 9THS, ROLLING BASS", 118, 124, 56, SC_DOR, P4(0, 3, -1, 0), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_HSHUF, GL_ROOTS, WS_GB, GK_JAZZ, 0, 4, WS_FLUTE},
-    {"TECHNO", "DRIVING KICK, METAL HATS", 128, 136, 50, SC_PHR, P4(0, 1, -1, 0), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_H16, GL_OFFBEAT, WS_DIRTY, GK_ARP, 7, 8, WS_LASER},
-    {"DUB TECHNO", "CHORD ECHOES IN FOG", 118, 126, 50, SC_MIN, P4(0, 3, -1, 0), GB_OFF, 0, 3, LN_FOUR, LN_FOUR, LN_NONE, LN_HOFF, LN_HOPEN, GL_SUB, WS_GB, GK_STABS, 6, 4, WS_PWM},
-    {"MINIMAL", "CLICKS, SPACE, A BELL", 122, 128, 54, SC_MIN, P4(0, -1, -1, 0), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_NONE, LN_HOFF, LN_HGAR, GL_OFFBEAT, WS_BASS, GK_LEAD, 1, 11, WS_BEEP},
-    {"ELECTRO", "808 FUNK, ROBOT ARPS", 124, 134, 50, SC_MIN, P4(0, 5, 6, 4), GB_OFF, 0, 1, LN_ELECTRO, LN_ELECTRO, LN_BACK, LN_H16, LN_H8, GL_ACID, WS_DIRTY, GK_ARP, 8, 3, WS_SQUARE},
-    {"IDM", "GLITCHED BREAKS, MUSIC BOX", 100, 140, 52, SC_DOR, P4(0, 4, 5, 3), GB_STORM, 2, 5, LN_ELECTRO, LN_MATH, LN_MATHS, LN_H16, LN_HTRAP, GL_SUB, WS_GB, GK_ARP, 11, 5, WS_PWM},
-    {"BROKEN BEAT", "WEST LONDON SHUFFLE", 104, 118, 60, SC_DOR, P4(1, 4, 0, 5), GB_CHOP, 2, 1, LN_BOOM3, LN_FUNK, LN_FUNKS, LN_HSHUF, LN_H8, GL_WALK, WS_BASS, GK_JAZZ, 0, 4, WS_SQUARE},
-    {"BIG BEAT", "BREAKS, ACID AND BRASS", 124, 136, 54, SC_MIN, P4(0, 5, 6, 4), GB_STRAIGHT, 2, 2, LN_BOOM, LN_FOUR, LN_BACK, LN_H8, LN_HOPEN, GL_ACID, WS_DIRTY, GK_LEAD, 3, 10, WS_SAW},
-    {"DUB", "ECHO, SKANK, DEEP BASS", 70, 82, 56, SC_MIN, P4(0, 3, -1, 0), GB_SPARSE, 5, 3, LN_DUB, LN_HALF, LN_HALFS, LN_HOFF, LN_HSHUF, GL_WALK, WS_GB, GK_STABS, 6, 1, WS_ORGAN},
-    {"FUNK", "16THS, GHOSTS, CLAVS", 100, 116, 58, SC_DOR, P4(0, 3, -1, 0), GB_STRAIGHT, 1, 0, LN_FUNK, LN_FUNK, LN_FUNKS, LN_H16, LN_H8, GL_WALK, WS_BASS, GK_STABS, 6, 3, WS_SQUARE},
-    {"DISCO", "OPEN HATS, OCTAVE BASS", 114, 124, 54, SC_MAJ, P4(0, 5, 3, 4), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOPEN, LN_HOFF, GL_OFFBEAT, WS_BASS, GK_STABS, 3, 6, WS_PLUCK},
-    {"JAZZ HOP", "BRUSHES, WALKING BASS", 80, 96, 64, SC_DOR, P4(1, 4, 0, 5), GB_STRAIGHT, 5, 4, LN_BOOM, LN_HALF, LN_BACKG, LN_HSHUF, LN_H8, GL_WALK, WS_GB, GK_JAZZ, 0, 4, WS_FLUTE},
-    {"BOSSA", "RIM CLICKS, SOFT CHORDS", 124, 136, 52, SC_MAJ, P4(1, 4, 0, 5), GB_OFF, 0, 7, LN_BOSSA, LN_BOSSA, LN_BOSSAS, LN_H16, LN_H8, GL_ROOTS, WS_GB, GK_JAZZ, 0, 5, WS_FLUTE},
-    {"AFROBEAT", "INTERLOCKING, HORN STABS", 100, 116, 56, SC_DOR, P4(0, 3, -1, 0), GB_CHOP, 4, 7, LN_AFRO, LN_AFRO, LN_FUNKS, LN_HSHUF, LN_H16, GL_WALK, WS_BASS, GK_STABS, 3, 6, WS_SQUARE},
-    {"FOOTWORK", "160 TRIPLET KICKS", 158, 164, 50, SC_MIN, P4(0, 5, -1, 0), GB_CHOP, 2, 1, LN_FOOT, LN_FOOT, LN_BACK, LN_HTRAP, LN_H16, GL_SUB, WS_GB, GK_STABS, 6, 0, WS_VOICE},
-    {"SHOEGAZE", "WALL OF DETUNED CHORDS", 90, 120, 50, SC_MAJ, P4(0, 4, 5, 3), GB_STRAIGHT, 0, 0, LN_BOOM, LN_FOUR, LN_BACK, LN_H8, LN_HOPEN, GL_ROOTS, WS_BASS, GK_PADS, 4, 10, WS_SUPER},
-    {"POST ROCK", "SLOW BUILD, RINGING ARPS", 80, 110, 50, SC_MAJ, P4(0, 4, 5, 3), GB_SPARSE, 2, 0, LN_HALF, LN_BOOM, LN_HALFS, LN_H8, LN_HSPARSE, GL_ROOTS, WS_BASS, GK_ARP, 1, 7, WS_PWM},
-    {"SYNTH POP", "BRIGHT HOOKS, AXIS CHORDS", 110, 124, 50, SC_MAJ, P4(0, 4, 5, 3), GB_OFF, 0, 2, LN_FOUR, LN_BOOM, LN_BACK, LN_H8, LN_H8, GL_ROOTS, WS_BASS, GK_MOTIF, 8, 3, WS_SUPER},
-    {"DARKWAVE", "EIGHTH BASS, COLD LEADS", 110, 130, 50, SC_MIN, P4(0, 6, 5, 4), GB_OFF, 0, 2, LN_FOUR, LN_BOOM, LN_BACK, LN_H8, LN_H16, GL_EIGHTHS, WS_BASS, GK_LEAD, 6, 8, WS_PWM},
-    {"TRANCE", "OFFBEAT BASS, RISING ARPS", 134, 140, 50, SC_MIN, P4(0, 5, 2, 6), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_HOFF, GL_OFFBEAT, WS_BASS, GK_ARP, 3, 8, WS_SUPER},
-    {"GABBER", "DISTORTED KICK AT 180", 170, 190, 50, SC_MIN, P4(0, 1, 0, 5), GB_OFF, 3, 2, LN_FOUR, LN_FOUR, LN_NONE, LN_HOFF, LN_HOFF, GL_SUB, WS_DIRTY, GK_LEAD, 10, 3, WS_SAW},
-    {"HYPERPOP", "GLITTER LEADS, BLOWN 808S", 150, 170, 50, SC_MAJ, P4(0, 4, 5, 3), GB_OFF, 2, 1, LN_TRAP, LN_BOOM, LN_HALFS, LN_HTRAP, LN_H16, GL_SUB, WS_GB, GK_MOTIF, 8, 11, WS_SUPER},
-    {"FUNKADELIC HYPERPOP", "TALKBOX LEADS, SLAP BASS", 110, 128, 58, SC_DOR, P4(0, 3, -1, 0), GB_CHOP, 1, 1, LN_FUNK, LN_BOOM3, LN_FUNKS, LN_H16, LN_HSHUF, GL_WALK, WS_DIRTY, GK_MOTIF, 3, 8, WS_VOICE},
-    {"RAVE", "HOOVERS, PIANO STABS", 135, 150, 50, SC_MIN, P4(0, 5, 6, 4), GB_CHOP, 3, 2, LN_FOUR, LN_BOOM, LN_BACK, LN_HOFF, LN_H16, GL_OFFBEAT, WS_DIRTY, GK_STABS, 10, 0, WS_VOICE},
-    {"HARDSTYLE", "DISTORTED KICKS, ANTHEMS", 148, 156, 50, SC_MIN, P4(0, 5, 2, 6), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_NONE, LN_HOFF, LN_HOFF, GL_OFFBEAT, WS_DIRTY, GK_LEAD, 10, 3, WS_SUPER},
-    {"HAPPY HARDCORE", "FAST, MAJOR, SUPERSAWS", 165, 180, 50, SC_MAJ, P4(0, 4, 5, 3), GB_CHOP, 3, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_HOFF, GL_OFFBEAT, WS_BASS, GK_ARP, 8, 3, WS_SUPER},
-    {"JERSEY CLUB", "BOUNCING KICKS, VOX CHOPS", 136, 145, 50, SC_MIN, P4(0, 5, -1, 0), GB_OFF, 0, 1, LN_JERSEY, LN_JERSEY, LN_BACK, LN_H8, LN_H8, GL_SUB, WS_GB, GK_MOTIF, 7, 11, WS_VOICE},
-    {"PHONK", "COWBELLS, CRUSHED 808S", 130, 145, 52, SC_PHR, P4(0, 1, -1, 0), GB_SPARSE, 5, 1, LN_TRAP, LN_HALF, LN_HALFS, LN_HTRAP, LN_H16, GL_SUB, WS_GB, GK_LEAD, 1, 11, WS_VOICE},
-    {"DRILL", "SLIDING 808S, STRINGS", 138, 146, 50, SC_MIN, P4(0, 5, 6, 4), GB_OFF, 0, 1, LN_DRILL, LN_DRILL, LN_DRILLS, LN_HTRAP, LN_H16, GL_SUB, WS_GB, GK_LEAD, 4, 1, WS_PWM},
-    {"FUTURE BASS", "SUPERSAW CHORDS, VOX", 140, 160, 50, SC_MAJ, P4(0, 4, 5, 3), GB_OFF, 0, 1, LN_HALF, LN_TRAP, LN_HALFS, LN_HTRAP, LN_H8, GL_SUB, WS_GB, GK_STABS, 3, 4, WS_VOICE},
-    {"NIGHTCORE", "SPED-UP TRANCE POP", 166, 176, 50, SC_MAJ, P4(0, 4, 5, 3), GB_OFF, 0, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_HOFF, GL_OFFBEAT, WS_BASS, GK_ARP, 8, 3, WS_SUPER},
-    {"DIGICORE", "BELLS, 808S, SAD CHORDS", 140, 160, 50, SC_MAJ, P4(5, 3, 0, 4), GB_OFF, 0, 1, LN_TRAP, LN_TRAP, LN_HALFS, LN_HTRAP, LN_HTRAP, GL_SUB, WS_GB, GK_MOTIF, 8, 1, WS_PWM},
+    {"JRPG BATTLE", "BRASS, STRINGS, DRIVING ROCK", 150, 172, 50, SC_MIN, P4(0, 5, 6, 4), GB_ORCH, 0, 0, LN_BOOM2, LN_ELECTRO, LN_BACK, LN_H8, LN_H16,
+     GL_EIGHTHS, GK_STABS, RV_STL, "SLAP BASS", "BRASS SECTION", "HORNS", "STRINGS", "TIMPANI"},
+    {"BOSS BATTLE", "CHOIR, HITS, HARMONIC MINOR", 160, 184, 50, SC_HARM, P4(0, 5, 1, 4), GB_ORCH, 0, 0, LN_FOUR, LN_BOOM, LN_BACK, LN_H16, LN_H8,
+     GL_EIGHTHS, GK_PADS, RV_HALL, "SYNTH BASS", "CHOIR AAH", "STRINGS", "HORNS", "ORCH HIT"},
+    {"WORLD MAP", "HEROIC STRINGS AND FLUTE", 100, 120, 50, SC_MAJ, P4(0, 3, 4, 5), GB_ORCH, 0, 0, LN_HALF, LN_BOOM, LN_HALFS, LN_H8, LN_HSPARSE,
+     GL_ROOTS, GK_PADS, RV_HALL, "FRETLESS", "STRINGS", "CHOIR AAH", "WOOD FLUTE", "TIMPANI"},
+    {"TOWN", "PIANO, FLUTE, A WALKING BASS", 96, 116, 56, SC_MAJ, P4(0, 5, 1, 4), GB_OFF, 0, 7, LN_BOSSA, LN_BOSSA, LN_BOSSAS, LN_H8, LN_HSHUF,
+     GL_WALK, GK_JAZZ, RV_ROOM, "FRETLESS", "PIANO", "E.PIANO", "WOOD FLUTE", "TIMPANI"},
+    {"CELTIC FIELD", "FLUTE OVER HARP, DORIAN", 104, 124, 54, SC_DOR, P4(0, 6, 3, 0), GB_OFF, 0, 7, LN_DUB, LN_HALF, LN_HALFS, LN_HSPARSE, LN_H8,
+     GL_ROOTS, GK_ARP, RV_HALL, "FRETLESS", "HARP", "HARP", "WOOD FLUTE", "TIMPANI"},
+    {"DUNGEON", "BELLS IN THE DARK, TIMPANI", 76, 92, 50, SC_PHR, P4(0, 1, -1, 0), GB_ORCH, 0, 3, LN_ONE, LN_HALF, LN_NONE, LN_HSPARSE, LN_NONE,
+     GL_SUB, GK_MOTIF, RV_SPACE, "SYNTH BASS", "CHIMES", "GLASS", "WARM PAD", "TIMPANI"},
+    {"SAD THEME", "PIANO AND STRINGS, NO DRUMS", 64, 80, 50, SC_MIN, P4(0, 5, 3, 4), GB_OFF, 0, 0, LN_NONE, LN_NONE, LN_NONE, LN_NONE, LN_NONE,
+     GL_SUB, GK_ARP, RV_HALL, "FRETLESS", "PIANO", "HARP", "STRINGS", "TIMPANI"},
+    {"TEMPLE", "HARP, FLUTE, JAPANESE SCALE", 76, 92, 50, SC_JAP, P4(0, 3, 0, 4), GB_ORCH, 0, 7, LN_ONE, LN_HALF, LN_NONE, LN_HSPARSE, LN_NONE,
+     GL_SUB, GK_MOTIF, RV_HALL, "FRETLESS", "HARP", "WOOD FLUTE", "WARM PAD", "TIMPANI"},
+    {"LAST BOSS", "CHOIR AND ORCHESTRA HITS", 140, 156, 50, SC_HARM, P4(0, 5, 3, 4), GB_ORCH, 0, 0, LN_FOUR, LN_BOOM, LN_BACK, LN_H8, LN_H16,
+     GL_EIGHTHS, GK_PADS, RV_HALL, "SYNTH BASS", "CHOIR OCTAVE", "CHOIR AAH", "HORNS", "ORCH HIT"},
+    {"VICTORY HALL", "FANFARE, BRASS, A MARCH", 118, 132, 50, SC_MAJ, P4(0, 3, 4, 0), GB_ORCH, 0, 0, LN_FOUR, LN_HALF, LN_BACK, LN_H8, LN_H8,
+     GL_ROOTS, GK_STABS, RV_HALL, "FRETLESS", "BRASS SECTION", "HORNS", "WOOD FLUTE", "TIMPANI"},
+    {"MECH ARENA", "BREAKBEATS, POWER CHORDS, ACID", 150, 170, 50, SC_PHR, P4(0, 1, -1, 0), GB_CHOP, 2, 2, LN_DNB, LN_ELECTRO, LN_BACK, LN_H16, LN_H8,
+     GL_ACID, GK_LEAD, RV_STM, "SYNTH BASS", "POWER CHORD", "RAVE STAB", "STRINGS", "ORCH HIT"},
+    {"HANGAR", "TRIP-HOP IN THE GARAGE", 84, 96, 56, SC_MIN, P4(0, 0, 5, 4), GB_CHOP, 5, 4, LN_TRIP, LN_HALF, LN_HALFS, LN_HOFF, LN_H8,
+     GL_WALK, GK_JAZZ, RV_STL, "FRETLESS", "E.PIANO", "LO-FI PIANO", "WARM PAD", "TIMPANI"},
+    {"ORBITAL MECH", "TRANCE BREAKS, CHOIR IN ORBIT", 138, 150, 50, SC_MIN, P4(0, 5, 2, 6), GB_STRAIGHT, 2, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOFF, LN_H16,
+     GL_OFFBEAT, GK_ARP, RV_SPACE, "SYNTH BASS", "RAVE STAB", "CHIMES", "CHOIR AAH", "ORCH HIT"},
+    {"STREET RACER", "PIANO HOUSE, SLAP BASS, 4/4", 128, 136, 52, SC_DOR, P4(0, 3, -1, 0), GB_SPARSE, 1, 2, LN_FOUR, LN_FOUR, LN_BACK, LN_HOPEN, LN_HOFF,
+     GL_OFFBEAT, GK_STABS, RV_STS, "SLAP BASS", "PIANO", "RAVE MINOR", "HORNS", "ORCH HIT"},
+    {"NIGHT RACER", "JUNGLE AT 165, RAVE STABS", 160, 172, 50, SC_MIN, P4(0, 5, 0, 6), GB_CHOP, 3, 2, LN_DNB, LN_NONE, LN_NONE, LN_NONE, LN_NONE,
+     GL_SUB, GK_STABS, RV_HALL, "SYNTH BASS", "RAVE STAB", "STRINGS", "STRINGS", "ORCH HIT"},
+    {"ANTIGRAV RACE", "DRUM & BASS, WARM PADS", 170, 176, 50, SC_MIN, P4(0, 5, 2, 6), GB_STRAIGHT, 2, 2, LN_DNB, LN_DNB2, LN_BACK, LN_H8, LN_H16,
+     GL_SUB, GK_PADS, RV_HALL, "SYNTH BASS", "WARM PAD", "STRINGS", "CHIMES", "ORCH HIT"},
+    {"ACID JAZZ MENU", "SHUFFLED E.PIANO, SLAP BASS", 100, 114, 60, SC_DOR, P4(1, 4, 0, 5), GB_CHOP, 1, 1, LN_FUNK, LN_BOOM3, LN_FUNKS, LN_H16, LN_HSHUF,
+     GL_WALK, GK_JAZZ, RV_ROOM, "SLAP BASS", "E.PIANO", "HORNS", "WOOD FLUTE", "ORCH HIT"},
+    {"FOGGY TOWN", "SURVIVAL HORROR TRIP-HOP", 76, 90, 54, SC_PHR, P4(0, 1, -1, 0), GB_SPARSE, 5, 4, LN_TRIP, LN_HALF, LN_HALFS, LN_HSPARSE, LN_HOFF,
+     GL_SUB, GK_MOTIF, RV_SPACE, "FRETLESS", "LO-FI PIANO", "GLASS", "WARM PAD", "TIMPANI"},
+    {"INFILTRATION", "STEALTH: PULSING BASS, STRINGS", 112, 126, 50, SC_MIN, P4(0, 6, 5, 4), GB_OFF, 0, 2, LN_ELECTRO, LN_BOOM, LN_BACK, LN_H16, LN_H8,
+     GL_EIGHTHS, GK_PADS, RV_STM, "SYNTH BASS", "STRINGS", "STRING FIFTHS", "CHIMES", "TIMPANI"},
+    {"INDUSTRIAL", "GRINDING POWER CHORDS", 116, 132, 50, SC_PHR, P4(0, 1, 0, 6), GB_STRAIGHT, 2, 2, LN_FOUR, LN_BOOM, LN_BACK, LN_H16, LN_HOFF,
+     GL_EIGHTHS, GK_LEAD, RV_STM, "SYNTH BASS", "POWER CHORD", "HORNS", "CHOIR AAH", "ORCH HIT"},
+    {"CYBER CITY", "ELECTRO, NEON, E.PIANO", 120, 130, 52, SC_MIN, P4(0, 5, 6, 4), GB_SPARSE, 2, 1, LN_ELECTRO, LN_ELECTRO, LN_BACK, LN_H16, LN_H8,
+     GL_ACID, GK_STABS, RV_STL, "SYNTH BASS", "E.PIANO", "RAVE MINOR", "HORNS", "ORCH HIT"},
+    {"SAVE ROOM", "A QUIET PLACE: BELLS, A PAD", 68, 80, 50, SC_MAJ, P4(0, 3, -1, 0), GB_OFF, 0, 0, LN_NONE, LN_NONE, LN_NONE, LN_NONE, LN_NONE,
+     GL_SUB, GK_ARP, RV_SPACE, "FRETLESS", "CHIMES", "HARP", "WARM PAD", "TIMPANI"},
 };
 #define NGENRE ((uint32_t)(sizeof(GENRES) / sizeof(GENRES[0])))
 
-/* standard progressions (KNOB 2): the scale each was written for; GENRE keeps the genre's own */
+/* standard progressions (KNOB 2): the scale each was written for; STYLE keeps the style's own */
 typedef struct {
     const char *name;
     int8_t deg[4];
-    uint8_t scale;                              /* 0: the genre's */
+    uint8_t scale;                              /* 0: the style's */
 } gprog_t;
 static const gprog_t GPROGS[] = {
-    {"GENRE", {0, 0, 0, 0}, 0},           {"AXIS POP", {0, 4, 5, 3}, SC_MAJ},  {"SAD POP", {5, 3, 0, 4}, SC_MAJ},
+    {"STYLE", {0, 0, 0, 0}, 0},           {"AXIS POP", {0, 4, 5, 3}, SC_MAJ},  {"SAD POP", {5, 3, 0, 4}, SC_MAJ},
     {"DOO-WOP 50S", {0, 5, 3, 4}, SC_MAJ}, {"ROYAL ROAD", {3, 4, 2, 5}, SC_MAJ}, {"JAZZ II-V-I", {1, 4, 0, 0}, SC_MAJ},
     {"EPIC MINOR", {0, 5, 2, 6}, SC_MIN}, {"ANDALUSIAN", {0, 6, 5, 4}, SC_MIN}, {"TRIP NOIR", {0, 0, 5, 4}, SC_MIN},
     {"HAZY DORIAN", {0, 3, 5, 4}, SC_DOR}, {"TWO CHORDS", {0, 3, -1, 0}, SC_DOR},
@@ -193,6 +188,29 @@ static void gn_break(uint32_t pi, uint32_t mode, uint32_t en)
         }
     }
 }
+/* the orchestra (T1, an SPU timpani or orchestra hit): the chord's root on the bar, a roll into the next section */
+static void gn_orch(uint32_t pi, uint32_t v, uint32_t en, int hit)
+{
+    uint32_t b, base = (hit ? 48u : 36u) + prj.root;
+    for (b = 0; b < 2u; b++) {
+        uint32_t o = b * 16u;
+        int32_t d = gn_chord_deg(pi, b);
+        if (v == 2u || v == 7u) {                /* the breakdown and the outro: the first bar only */
+            if (!b) gn_put(pi, o, WT_BRK, gn_note(base, d), 11, 0, 0);
+            continue;
+        }
+        gn_put(pi, o, WT_BRK, gn_note(base, d), 14, 0, 0);
+        if (hit) {                              /* the hits: on the one, and pushed before the next bar */
+            if (rnd(16) < en + 2u) gn_put(pi, o + 6u, WT_BRK, gn_note(base, d), 12, 0, 0);
+            if (b && rnd(16) < en) gn_put(pi, o + 14u, WT_BRK, gn_note(base, gn_chord_deg(pi, 2u)), 13, 0, 0);
+        } else {                                /* the timpani: the fifth on three, a roll at the end */
+            if (rnd(16) < en + 4u) gn_put(pi, o + 8u, WT_BRK, gn_note(base, d + 4), 11, 0, 0);
+            if (b && (v == 3u || v == 6u || rnd(16) < en))
+                gn_put(pi, o + 12u, WT_BRK, gn_note(base, d), 12, FX_ROLL, (int32_t)(2u + rnd(3)));
+        }
+    }
+}
+
 /* the kit (T2): kicks from the kick lane, snares and claps from the snare lane; the hats (T3) from the hat lane */
 static void gn_drums(uint32_t pi, const char *kl, const char *sl, const char *hl, uint32_t en, int last_fill)
 {
@@ -328,18 +346,19 @@ static void gn_section(uint32_t pi, const genre_t *g, uint32_t v, uint32_t en, c
     p->pad[0] = 0;
     switch (v) {
     case 1: en = en + 3u > 15u ? 15u : en + 3u; break;                                   /* B */
-    case 2: drums = 0; if (brk != GB_OFF) brk = GB_SPARSE; bass = GL_SUB; key = chords ? GK_PADS : km[1]; syn = chords ? 99u : GK_PADS; break;
-    case 3: en = 15; fill = 1; if (brk != GB_OFF && g->brk == GB_STORM) brk = GB_STORM; break;   /* D */
+    case 2: drums = 0; if (brk != GB_OFF && brk != GB_ORCH) brk = GB_SPARSE; bass = GL_SUB; key = chords ? GK_PADS : km[1]; syn = chords ? 99u : GK_PADS; break;
+    case 3: en = 15; fill = 1; break;                                                    /* D */
     case 4: kl = GN_LANE[g->k2]; hl = GN_LANE[g->h2]; key = km[1]; syn = km[3]; break;   /* E */
     case 5:                                                                              /* F */
         kl = GN_LANE[LN_HALF]; sl = GN_LANE[LN_HALFS]; hl = GN_LANE[LN_HSPARSE];
-        if (brk != GB_OFF) brk = GB_HALF;
+        if (brk != GB_OFF && brk != GB_ORCH) brk = GB_HALF;
         if (!chords) key = GK_LEAD;
         break;
-    case 6: en = en + 4u > 15u ? 15u : en + 4u; if (brk != GB_OFF) brk = g->brk == GB_STORM ? GB_STORM : GB_CHOP; fill = 1; break;
-    case 7: drums = 0; if (brk != GB_OFF) brk = GB_SPARSE; bass = GL_SUB; key = chords ? GK_PADS : km[1]; syn = 99u; break;   /* H */
+    case 6: en = en + 4u > 15u ? 15u : en + 4u; if (brk != GB_OFF && brk != GB_ORCH) brk = g->brk == GB_STORM ? GB_STORM : GB_CHOP; fill = 1; break;
+    case 7: drums = 0; if (brk != GB_OFF && brk != GB_ORCH) brk = GB_SPARSE; bass = GL_SUB; key = chords ? GK_PADS : km[1]; syn = 99u; break;   /* H */
     }
-    if (brk != GB_OFF) gn_break(pi, brk, en);
+    if (g->brk == GB_ORCH) gn_orch(pi, v, en, g->t1_snd[0] == 'O');
+    else if (brk != GB_OFF) gn_break(pi, brk, en);
     if (drums) gn_drums(pi, kl, sl, hl, en, fill || v == 0u);
     else if (v == 7u) gn_drums(pi, GN_LANE[LN_NONE], GN_LANE[LN_NONE], GN_LANE[LN_HSPARSE], 0, 0);
     gn_bass(pi, bass, kl, en);
@@ -353,7 +372,7 @@ static void gn_make(void)
     const genre_t *g = &GENRES[gn_genre % NGENRE];
     const gprog_t *pr = &GPROGS[gn_prog % NGPROG];
     static const uint8_t CHAIN[10] = {0, 1, 0, 4, 2, 5, 6, 3, 0, 7};
-    static const uint8_t VOL[NTRK] = {11, 9, 8, 12, 12, 10};   /* the drums sit under the music (the kick at about half) */
+    static const uint8_t VOL[NTRK] = {11, 10, 9, 11, 12, 11};  /* the drums sit under the music (the kick at about half) */
     uint8_t km[4];
     uint32_t i, en = gn_energy;
     rnd_main ^= fm1_ms * 0x9E3779B1u + gn_genre;
@@ -373,17 +392,18 @@ static void gn_make(void)
     /* the sounds: the kit first (it leaves the FM track free), then the FM keys */
     sound_preset(WT_DRM, preset_named(E_KIT, g->kit));
     sound_preset(WT_HAT, preset_named(E_KIT, g->kit));
-    sound_preset(WT_BRK, preset_named(E_SAMPLE, g->brk_src));
-    sound_preset(WT_BAS, gn_preset_en(WS_NAME[g->bass_snd]));
-    sound_preset(WT_SYN, gn_preset_en(WS_NAME[g->syn_snd]));
-    sound_preset(WT_KEY, preset_named(E_FM, rnd(3) ? g->key_patch : g->key_patch2));
-    for (i = 0; i < NTRK; i++) {
+    sound_preset(WT_BRK, g->brk == GB_ORCH || g->brk == GB_OFF ? gn_preset_en(g->t1_snd) : preset_named(E_SAMPLE, g->brk_src));
+    sound_preset(WT_BAS, gn_preset_en(g->bass_snd));
+    sound_preset(WT_SYN, gn_preset_en(g->syn_snd));
+    sound_preset(WT_KEY, gn_preset_en(rnd(3) ? g->key_snd : g->key_snd2));
+    for (i = 0; i < NTRK; i++) {               /* the SPU's tracks drenched, as they were: the reverb did the room */
         prj.snd[i].p[P_VOL] = (int8_t)VOL[i];
-        prj.snd[i].p[P_ECHO] = (int8_t)(i == WT_KEY ? 3 : i == WT_SYN ? 2 : 0);
-        prj.snd[i].p[P_VERB] = (int8_t)(i >= WT_BAS ? 3 + (i != WT_BAS) * 2 : 2);
+        prj.snd[i].p[P_ECHO] = (int8_t)(i == WT_KEY ? 2 : i == WT_SYN ? 1 : 0);
+        prj.snd[i].p[P_VERB] = (int8_t)(i == WT_BRK ? (g->brk == GB_ORCH ? 7 : 3) : i == WT_BAS ? 2 : i >= WT_KEY ? 7 + (i == WT_SYN) * 2 : 3);
     }
-    if (g->brk == GB_OFF) prj.snd[WT_BRK].p[P_VOL] = 9;
-    /* the parts' styles: the genre's, and another for the sections that turn */
+    prj.grv.pad[0] = g->rvb;
+    if (g->brk != GB_ORCH && g->brk != GB_OFF) prj.snd[WT_BRK].p[P_VOL] = 8;   /* (a break is a whole kit: hot) */
+    /* the parts' styles: the style's, and another for the sections that turn */
     km[0] = g->key;
     if (GK_IS_CHORD(g->key)) { km[1] = (uint8_t)(GK_PADS + rnd(3)); km[2] = (uint8_t)rnd(3); km[3] = (uint8_t)rnd(3); }
     else { km[1] = (uint8_t)rnd(3); km[2] = (uint8_t)(GK_PADS + rnd(3)); km[3] = GK_PADS; }
@@ -391,7 +411,7 @@ static void gn_make(void)
     prj.song_len = 10;
     for (i = 0; i < 10u; i++) { prj.song[i].pat = CHAIN[i]; prj.song[i].rep = 1; }
     prj.mode = 1;
-    {                                           /* its name: the genre's first word, the key, a number */
+    {                                           /* its name: the style's first word, the key, a number */
         char *s = prj.name;
         const char *a = g->name;
         uint32_t n = 0, k = rnd(90) + 10u;

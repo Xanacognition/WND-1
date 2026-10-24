@@ -173,7 +173,7 @@ int main(void)
     tap(BTN_EDIT);
     k = ENG(0);
     arp_held = 1;
-    enc(ENC_PRESETS, 1);
+    enc(ENC_PRESETS, k + 1u < E_N ? 1 : -1);    /* (GEARFRAME's first track is on the SPU, the last engine) */
     arp_held = 0;
     CHECK(ENG(0) != k, "3. ARP + PRESETS: the next engine");
 
@@ -424,13 +424,16 @@ int main(void)
     tap(BTN_SEL);
     CHECK(page == PG_MAGIC, "10. SCL again: MAGIC");
     tap(BTN_SEL);
-    CHECK(page == PG_TRACK, "10. SCL a third time: TRACKS");
+    CHECK(page == PG_GENRE, "10. SCL a third time: STYLE (GEARFRAME's generator)");
+    tap(BTN_SEL);
+    CHECK(page == PG_TRACK, "10. SCL a fourth time: TRACKS");
     /* 11. a 0.4 project (pads zero) and a damaged pad load safely */
     fresh();
-    prj.pat[3].pad[0] = 0x77; prj.snd[2].sat = 200;
+    prj.pat[3].pad[0] = 0x77; prj.snd[2].sat = 200; prj.grv.pad[0] = 99;
     prj.crc = 0;
     prj_sanitize();
     CHECK(prj.pat[3].pad[0] == 1 && prj.snd[2].sat == 0, "11. a damaged link byte or SAT is brought back (%u, %u)", prj.pat[3].pad[0], prj.snd[2].sat);
+    CHECK(prj.grv.pad[0] == 0, "11. a damaged SPU reverb preset is brought back to HALL (%u)", prj.grv.pad[0]);
 
     /* 12. UNDO and REDO cover the sounds: a knob burst is one step, a preset change by mistake comes back, the screen says which track */
     fresh();

@@ -171,6 +171,7 @@ static uint32_t lane_base(uint32_t t)
     case E_NOISE: return 96u;
     case E_FM: return 64u;
     case E_KIT: case E_SAMPLE: return note_mode(t) == NM_NOTE ? 60u : 1u;
+    case E_SPU: return SPU_INST[(uint32_t)clampi(prj.snd[t].p[P_SPI], 0, (int32_t)SPU_N - 1)].root < 48u ? 45u : 60u;
     default: return 69u;
     }
 }
@@ -311,6 +312,9 @@ static void prj_demo(void)
     memcpy(prj.name, "KAWA QUEST", 11);
     prj.root = 0;                               /* C major (the dungeon and the boss are A minor: the same notes) */
     prj.scale = 1;
+    sound_preset(T1, preset_named(E_PULSE, 1)); /* (KAWA's sounds: a new GEARFRAME project starts on the SPU's) */
+    sound_preset(T3, preset_named(E_WAVE, 0));
+    sound_preset(T4, preset_named(E_NOISE, 0));
     sound_preset(T2, preset_named(E_FM, 11));   /* KALIMBA */
     sound_preset(T5, preset_named(E_KIT, KIT_DEMO));
     sound_preset(T6, preset_named(E_SAMPLE, BRK_DEMO));
@@ -1126,6 +1130,7 @@ static void prj_sanitize(void)                  /* a loaded project: nothing out
         sed_fix(&prj.sed[t]);
     }
     prj.grv.on = prj.grv.on ? 1u : 0u;
+    if (prj.grv.pad[0] >= RVB_NP) prj.grv.pad[0] = 0;   /* (GEARFRAME: the SPU reverb's preset; 0.5's projects: 0, HALL) */
     prj.grv.len = (uint8_t)clampi(prj.grv.len, 1, 16);
     for (i = 0; i < 16u; i++)
         prj.grv.tick[i] = (uint8_t)clampi(prj.grv.tick[i], 1, 12);
