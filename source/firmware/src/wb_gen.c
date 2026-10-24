@@ -458,6 +458,19 @@ static void song_new(uint32_t gi)
     seed_of = 0xFF;
 }
 
+static void song_empty(void)                    /* a blank page: the sounds and tempo of the genre it had, no notes, A alone */
+{
+    uint32_t i;
+    song_new(song.genre % WB_NGENRE);
+    for (i = 0; i < NPAT; i++) pat_blank(&song.pat[i], 16);
+    song.nchain = 1;
+    song.chain[0] = 0;
+    song.cur = 0;
+    song.loop = 0;
+    memset(song.name, 0, sizeof song.name);
+    memcpy(song.name, "EMPTY SONG", 10);
+}
+
 /* ---- chord progressions: every bass, keys and synth note moves from its row's old chord to its new one */
 static int8_t undo_deg[8];
 static uint8_t undo_n, undo_rows, undo_scale, undo_prog, undo_ok;

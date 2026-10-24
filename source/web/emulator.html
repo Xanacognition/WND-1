@@ -134,9 +134,7 @@ h1 span { color: var(--pink); }
   position: relative;
 }
 .glass { position: relative; aspect-ratio: 1; width: 100%; border-radius: 6px; overflow: hidden; background: #120c24; }
-.glass canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.glass::after { content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(135deg, rgba(255,255,255,.07), transparent 40%), repeating-linear-gradient(0deg, rgba(0,0,0,.08) 0 1px, transparent 1px 3px); }
+.glass canvas { width: 100%; height: 100%; display: block; }   /* sharp: drawn at a whole multiple of 240 (drawScreen) */
 .power {
   position: absolute; inset: 16px; border-radius: 6px; display: grid; place-items: center; align-content: center; gap: 14px;
   background: radial-gradient(circle at 50% 38%, #2b1d52, #120c24 70%); text-align: center; padding: 18px;
@@ -338,13 +336,14 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     <div class="proj">
       <div>
         <h2 id="exp-h">Export audio</h2>
-        <p>Renders the song as it is on the FM-1 now into 16-bit, 44.1 kHz WAV files, in a ZIP. <b>Loops</b>: each pattern A-H that has notes, one bar-exact loop each (the reverb tail wraps round, so they loop cleanly in Renoise or any DAW). <b>Loops + stems</b>: the same, plus every track of every pattern alone. <b>Whole song</b>: the arrangement once, with its tail.</p>
+        <p>Renders the song as it is on the FM-1 now into 16-bit, 44.1 kHz WAV files, in a ZIP. <b>Loops</b>: each pattern A-H that has notes, one bar-exact loop each (the reverb tail wraps round, so they loop cleanly in Renoise or any DAW). <b>Loops + stems</b>: the same, plus every track of every pattern alone. <b>Whole song</b>: the arrangement once, with its tail. <b>For Renoise</b>: the notes as a MIDI file (one track each, the arrangement, the tempo and meter) and every track's sound as a sample, with a guide to put them together.</p>
         <p class="pmsg" id="exp-msg" role="status"></p>
       </div>
       <div class="acts">
         <button type="button" class="sbtn" id="exp-loops">Loops</button>
         <button type="button" class="sbtn" id="exp-stems">Loops + stems</button>
         <button type="button" class="sbtn" id="exp-song">Whole song</button>
+        <button type="button" class="sbtn" id="exp-midi">For Renoise: MIDI + sounds</button>
       </div>
     </div>
   </section>
@@ -890,19 +889,32 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
   };
 
-  const canvas = $("screen"), ctx2d = canvas.getContext("2d"), img = ctx2d.createImageData(240, 240);
+  const canvas = $("screen"), ctx2d = canvas.getContext("2d"), img = new ImageData(240, 240);
   const device = $("device");
   let send = () => {};
   let audio = null, running = false;
   const ui = {page: -1, trk: 0, theme: 0, sgen: 0, labels: ["", "", "", ""], names: ["", "", "", ""], leds: null};
 
+  /* the screen, sharp: the 240 x 240 frame blown up by a whole number with hard edges (each pixel a clean square),
+     then the browser takes that down to the canvas's size on the page smoothly: no smear, no uneven pixels */
+  const fbCanvas = document.createElement("canvas");
+  fbCanvas.width = fbCanvas.height = 240;
+  const fbCtx = fbCanvas.getContext("2d");
+  function fitScreen() {
+    const css = canvas.getBoundingClientRect().width || 240, k = Math.max(1, Math.ceil(css * (window.devicePixelRatio || 1) / 240));
+    if (canvas.width !== 240 * k) { canvas.width = canvas.height = 240 * k; }
+    ctx2d.imageSmoothingEnabled = false;
+  }
+  window.addEventListener("resize", () => { fitScreen(); ctx2d.drawImage(fbCanvas, 0, 0, canvas.width, canvas.height); });
   function drawScreen(fb) {
     const d = img.data;
     for (let i = 0, j = 0; i < 57600; i++, j += 4) {
       const c = fb[i];
       d[j] = ((c >> 11) & 31) * 255 / 31; d[j + 1] = ((c >> 5) & 63) * 255 / 63; d[j + 2] = (c & 31) * 255 / 31; d[j + 3] = 255;
     }
-    ctx2d.putImageData(img, 0, 0);
+    fbCtx.putImageData(img, 0, 0);
+    fitScreen();
+    ctx2d.drawImage(fbCanvas, 0, 0, canvas.width, canvas.height);
   }
 
   /* ---- the buttons: each one held by any number of hands (pointer, keys, shortcuts); it goes down
@@ -1576,13 +1588,18 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   let songWait = null, exporting = false;
   const TRK = ["BRK", "KIK", "DRM", "BAS", "KEY", "SYN"];
   function liveSong() { return new Promise((res, rej) => { songWait = res; send({t: "getsong"}); setTimeout(() => { if (songWait) { songWait = null; rej(new Error("no answer from the engine")); } }, 3000); }); }
-  function wavOf(pcm) {                          /* Int16Array, stereo interleaved */
-    const n = pcm.length * 2, b = new ArrayBuffer(44 + n), v = new DataView(b);
+  function wavOf(pcm, root) {                    /* Int16Array, stereo interleaved; root: a MIDI note for the 'smpl' chunk */
+    const sm = root === undefined ? 0 : 44, n = pcm.length * 2, b = new ArrayBuffer(44 + n + sm), v = new DataView(b);
     const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
     str(0, "RIFF"); v.setUint32(4, 36 + n, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
     v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 44100 * 4, true); v.setUint16(32, 4, true);
     v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n, true);
-    new Int16Array(b, 44).set(pcm);
+    new Int16Array(b, 44, pcm.length).set(pcm);
+    if (sm) {                                    /* the note it was played at: samplers (Renoise too) map it from there */
+      const o = 44 + n;
+      str(o, "smpl"); v.setUint32(o + 4, 36, true); v.setUint32(o + 16, Math.round(1e9 / 44100), true); v.setUint32(o + 20, root, true);
+    }
+    v.setUint32(4, 36 + n + sm, true);
     return new Uint8Array(b);
   }
   const CRC = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[i] = c >>> 0; } return t; })();
@@ -1628,6 +1645,25 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
     const at = loop ? Math.min(x.wb_export_mark() || n, total - n) : 0;
     return all.slice(2 * at, 2 * (at + n));
   }
+  function trimTail(pcm) {                       /* the silence at the end off (a little kept) */
+    let e = pcm.length;
+    while (e > 2 && Math.abs(pcm[e - 1]) < 8 && Math.abs(pcm[e - 2]) < 8) e -= 2;
+    return pcm.slice(0, Math.min(pcm.length, e + 2 * 441));
+  }
+  function oneShot(x, t, note, secs, gate) {     /* a hit of a track's sound, dry */
+    x.wb_hit(t, note);
+    const total = Math.round(secs * 44100), out = new Int16Array(total * 2), g = Math.round((gate || 0) * 44100);
+    let done = 0;
+    while (done < total) {
+      if (g && done <= g && done + 256 > g) x.wb_release(t);
+      const f = new Float32Array(x.memory.buffer, x.kawa_audio(), 512);
+      for (let i = 0; i < 256 && done < total; i++, done++) {
+        out[2 * done] = Math.max(-32767, Math.min(32767, Math.round(f[2 * i] * 32768)));
+        out[2 * done + 1] = Math.max(-32767, Math.min(32767, Math.round(f[2 * i + 1] * 32768)));
+      }
+    }
+    return trimTail(out);
+  }
   async function exportAudio(kind) {
     if (exporting) return;
     const msg = $("exp-msg");
@@ -1643,7 +1679,43 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       put();
       const name = (String.fromCharCode(...bytes.subarray(8, 24)).replace(/\0.*$/, "").trim() || "wonderblue").replace(/[^A-Za-z0-9 #-]+/g, "").replace(/ +/g, "-");
       const bpm = bytes[24], files = [];
-      if (kind === "song") {
+      if (kind === "midi") {
+        msg.textContent = "Writing the MIDI file…";
+        const mp = x.wb_midi(), mid = new Uint8Array(x.memory.buffer, mp, x.wb_midi_size()).slice();
+        files.push({name: `${name}.mid`, data: mid});
+        const str = (p) => { const u = new Uint8Array(x.memory.buffer); let t = ""; for (let i = p; u[i] && t.length < 24; i++) t += String.fromCharCode(u[i]); return t.trim().replace(/[^A-Za-z0-9 #-]+/g, "").replace(/ +/g, "-"); };
+        msg.textContent = "Rendering the sounds…";
+        put();                                   /* the break, a bar at 160 BPM as stored */
+        const bl = x.wb_break_len(), mono = new Int16Array(x.memory.buffer, x.wb_break(), bl), br = new Int16Array(bl * 2);
+        for (let i = 0; i < bl; i++) br[2 * i] = br[2 * i + 1] = mono[i];
+        files.push({name: `sounds/BRK-${str(x.wb_break_name())}-160bpm-16-slices.wav`, data: wavOf(br, 60)});
+        const shots = [[1, 36, 60, "KIK", 1.6, 0, () => str(x.wb_patch_name(1))], [2, 38, 60, "DRM-snare", 1.0, 0, () => str(x.wb_patch_name(2))],
+                       [2, 39, 122, "DRM-clap", 1.0, 0, () => ""], [2, 42, 84, "DRM-closed-hat", 0.8, 0, () => str(x.wb_hat_name())],
+                       [2, 46, 108, "DRM-open-hat", 1.4, 0, () => str(x.wb_hat_name())],
+                       [3, 48, 48, "BAS", 3.0, 1.4, () => str(x.wb_patch_name(3))], [4, 60, 60, "KEY", 3.5, 1.6, () => str(x.wb_patch_name(4))],
+                       [5, 60, 60, "SYN", 3.5, 1.6, () => str(x.wb_patch_name(5))]];
+        for (const [t, root, note, label, secs, gate, nm] of shots) {
+          put();
+          const pcm = oneShot(x, t, note, secs, gate);
+          files.push({name: `sounds/${label}${nm() ? "-" + nm() : ""}${gate ? "-" + ["C2", "C3", "C4"][root / 12 - 4 + 1] : ""}.wav`, data: wavOf(pcm, root)});
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        files.push({name: "HOW-TO-RENOISE.txt", data: new TextEncoder().encode([
+          "Wonderblue-OS -> Renoise",
+          "",
+          "1. File > Import (or drag) " + name + ".mid into Renoise: one track per Wonderblue track (BRK KIK DRM BAS KEY SYN),",
+          "   the arrangement in order, the tempo and the meter. Renoise asks how to import: keep one track per MIDI track.",
+          "2. Drag the sounds/ files onto the instruments the import made (one per track), or make one instrument each:",
+          "   BRK  the break, a bar at 160 BPM: in the sample editor, Slices > 16 equal slices. Slice 1 plays on C#4 (MIDI 61),",
+          "        slice 2 on D-4, and so on: that is how the MIDI file writes them.",
+          "   KIK  the kick on C-2 (36).",
+          "   DRM  snare on D-2 (38), clap on D#2 (39), closed hat on F#2 (42), open hat on A#2 (46): put each sample on its",
+          "        key in the keyzone editor (General MIDI drums).",
+          "   BAS KEY SYN  one note each, played at the note in its name (C3 or C4, also written in the file): Renoise plays",
+          "        it up and down the keyboard from there. Chords are in the MIDI file as their notes.",
+          "3. Want the exact sound of the FM-1 instead? Use the Loops or Loops + stems export.",
+          ""].join("\r\n"))});
+      } else if (kind === "song") {
         msg.textContent = "Rendering the whole song…";
         files.push({name: `${name}-${bpm}bpm-song.wav`, data: wavOf(await render(x, 8, 0, false))});
       } else {
@@ -1663,7 +1735,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
       }
       msg.textContent = `Packing ${files.length} WAV file${files.length > 1 ? "s" : ""}…`;
       await saveFile(`${name}-${kind}.zip`, zipOf(files));
-      msg.textContent = `Done: ${files.length} WAV file${files.length > 1 ? "s" : ""} (${name}-${kind}.zip).`;
+      msg.textContent = `Done: ${files.length} file${files.length > 1 ? "s" : ""} (${name}-${kind}.zip).`;
     } catch (e) {
       msg.textContent = e && e.code === "declined" ? "Not saved." : "Export failed: " + ((e && e.message) || e);
     } finally { exporting = false; }
@@ -1671,6 +1743,7 @@ kbd { font-family: var(--mono); font-size: 12px; background: #2f2a3b; border-rad
   $("exp-loops").addEventListener("click", () => exportAudio("loops"));
   $("exp-stems").addEventListener("click", () => exportAudio("stems"));
   $("exp-song").addEventListener("click", () => exportAudio("song"));
+  $("exp-midi").addEventListener("click", () => exportAudio("midi"));
 
   /* ---- power on: the saved projects and the samples go in before the first step */
   function wasmBytes() {

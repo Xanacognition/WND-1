@@ -1,0 +1,26 @@
+300 btn 12
+2400 shot trk
+2500 btn 9
+2700 shot sng
+2800 enc 3 -6
+2900 keys 0x100000
+2950 keys 0
+3100 shot sng_armed
+3200 keys 0x100000
+3250 keys 0
+3300 btn 12
+3500 btn 8
+3700 shot empty_trk
+3800 btn 3
+4000 shot chd
+4100 btn 6
+4300 shot snd
+4400 press 11
+4450 release 11
+4600 shot arr
+4700 press 2
+4800 release 2
+4850 press 2
+4900 release 2
+5100 shot perform
+6000 end
