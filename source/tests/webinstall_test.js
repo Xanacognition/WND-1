@@ -54,7 +54,8 @@ function withProduct(raw, text) {                              // the same packa
  *   dev: options of the simulated FM-1 (null: none), extra: other devices, midi: options of the Web MIDI, nav: replaces it */
 async function bench(o = {}) {
     const midi = new M.MockMidi(o.midi || {});
-    const dev = o.dev === null ? null : midi.add(new M.Fm1(o.dev || {}));
+    // (after a good install the device answers the identity of the package it was given: KAWA's or Wonderblue-OS's)
+    const dev = o.dev === null ? null : midi.add(new M.Fm1(Object.assign({ afterId: PRODUCT }, o.dev || {})));
     for (const d of o.extra || []) midi.add(d);
     const r = await bench.run(midi, o);
     return Object.assign(r, { midi, dev });
@@ -77,7 +78,7 @@ async function goodInstall(name, o = {}) {
     const dev = r.dev;
     assert.equal(r.err, undefined, r.err && r.err.message);
     assert.deepEqual(r.res, { done: true, id: PRODUCT });
-    assert.equal(PRODUCT, "FM-1_955");
+    assert.equal(PRODUCT, "FM-1_922");
     // the Python tool's sequence: start, check..., loader, write 0..100, reboot, done
     const k = kinds(r), ks = [...new Set(k)];
     assert.deepEqual(ks, ["start", "check", "loader", "write", "reboot", "done"]);
@@ -87,7 +88,7 @@ async function goodInstall(name, o = {}) {
     assert.equal(w[0], 0); assert.equal(w[w.length - 1], 100);
     assert.ok(w.slice(0, -1).every(x => x <= 99), "write % stays under 100 until the end");
     assert.ok(w.every((x, i) => i === 0 || x >= w[i - 1]), "write % never goes back");
-    assert.equal(W.STEP_TEXT.done(PRODUCT), "done: the FM-1 runs FM-1_955");
+    assert.equal(W.STEP_TEXT.done(PRODUCT), "done: the FM-1 runs FM-1_922");
     // the chip: the app area is the package's, the flash head and the user's data were never written
     assert.ok(Buffer.from(dev.appArea()).equals(Buffer.from(dev.expectedApp(PKG))), "app area differs from the package's flash.bin");
     assert.ok(dev.appChanged() && dev.untouched());
@@ -96,13 +97,13 @@ async function goodInstall(name, o = {}) {
     assert.deepEqual([dev.stats.step1Fails, dev.stats.loaderFails], [[], []]);
     assert.equal(dev.stats.stray, 0); assert.equal(dev.stats.junk, 0);
     assert.equal(dev.stats.upgrades, 2, "UPGRADE once per step");
-    assert.equal(dev.appId, "FM-1_955"); assert.equal(dev.mode, "app");
+    assert.equal(dev.appId, "FM-1_922"); assert.equal(dev.mode, "app");
     assert.deepEqual(dev.events.filter(e => e.startsWith("plug")), ["plug:app", "plug:loader", "plug:app"]);
     assert.deepEqual(r.busy, [true, false]);
     assert.deepEqual(r.midi.sysexAsked, r.midi.sysexAsked.map(() => true), "SysEx must be asked for");
     assert.ok(r.midi.sysexAsked.length >= 1);
     assert.equal(r.asked.length, 1); assert.equal(r.asked[0].product, PRODUCT); assert.equal(r.asked[0].resume, false);
-    assert.match(r.lines[0], /^package: FM-1_955 {2}\(kawa-\d/);
+    assert.match(r.lines[0], /^package: FM-1_922 {2}\(wnd-1-\d/);
     assert.equal(r.lines[1], `device:  ${o.dev && o.dev.appId || "FM-1_015"}  (FM-1)`);
     assert.equal(dev.inPort.connection, "closed"); assert.equal(dev.outPort.connection, "closed");   // no port left open
     quiet(dev);
@@ -423,8 +424,8 @@ test("pair_output: exact name, Windows numbering, the only output, else none", (
 });
 test("the package of the site: newest in SHA256SUMS, its hash is the file's, fetched with relative URLs", async () => {
     assert.equal(W.newestInSums(sums).name, PKGNAME);
-    const files = fs.readdirSync(path.join(ROOT, "install")).filter(f => /^kawa-[\d.]+\.fwsc$/.test(f)).sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
-    assert.equal(files[files.length - 1], PKGNAME, "the newest install/kawa-*.fwsc is not the one SHA256SUMS names");
+    const files = fs.readdirSync(path.join(ROOT, "install")).filter(f => /^wnd-1-[\d.]+\.fwsc$/.test(f)).sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    assert.equal(files[files.length - 1], PKGNAME, "the newest install/wnd-1-*.fwsc is not the one SHA256SUMS names");
     assert.equal(await W.sha256hex(PKG), latest.sha256, "install/SHA256SUMS does not match the package: the page would refuse it");
     const h = "a".repeat(64), g = "b".repeat(64);
     assert.deepEqual(W.newestInSums(`${h}  older/kawa-0.9.fwsc\n${g}  kawa-0.9.fwsc\n${h}  kawa-0.10.fwsc\n${h}  kawa-0.2.fwsc\n`), { name: "kawa-0.10.fwsc", sha256: h });
@@ -457,7 +458,7 @@ test("the package of the site: newest in SHA256SUMS, its hash is the file's, fet
     // network failure (offline, or a page opened from a file): says what to do
     await assert.rejects(W.fetchLatest(async () => { throw new TypeError("Failed to fetch"); }), e => e.code === "download" && /\(Failed to fetch\); opened from a file, or offline\? Choose the \.fwsc file/.test(e.message));
     const sumsOnly = async url => (url === "install/SHA256SUMS" ? { ok: true, text: async () => sums } : { ok: false, status: 404 });
-    await assert.rejects(W.fetchLatest(sumsOnly), e => e.code === "download" && /^cannot download install\/kawa-[\d.]+\.fwsc \(HTTP 404\); choose the \.fwsc file yourself instead$/.test(e.message));
+    await assert.rejects(W.fetchLatest(sumsOnly), e => e.code === "download" && /^cannot download install\/wnd-1-[\d.]+\.fwsc \(HTTP 404\); choose the \.fwsc file yourself instead$/.test(e.message));
 });
 test("index.html: loads install/webinstall.js, links exist, nothing from the network", () => {
     const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
